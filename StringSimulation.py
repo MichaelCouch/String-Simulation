@@ -25,17 +25,30 @@ class QString:
         self.m = m
         self.k = k
         self.time_elapsed = 0.
-        self.eps = np.ones(self.position.shape)*2.*np.pi / len(self.position)
+        self.eps = np.ones(len(self.position))*2.*np.pi / len(self.position)
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
         
     def rotate(self,n=1):
         return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n]))
-    
+
+    def posdd(self):
+        return np.array(
+            map(lambda a,b: a/b,
+                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
+                self.eps**2)
+            )
+
+    def posd(self):
+        return np.array(
+            map(lambda a,b: a/b,
+                (self.position - self.rotate(1)[0]),
+                self.eps))
+
     def increment(self,h):
         orig_pos,orig_vel = self.position,self.velocity
-        posddE = (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]) / (self.eps**2)
-        posdE  = (self.rotate(1)[0] - self.position)/self.eps
+        posddE = self.posdd()
+        posdE  = self.posd()
         len_posdE = np.linalg.norm(posdE,axis=1)
         len_posdE = np.array(map(lambda a: max(a,planck_length),len_posdE))
         accE = np.array(map(lambda dd,d,de: dd/de - dd.dot(d) * d / (de**3),posddE,posdE,len_posdE))
@@ -44,11 +57,11 @@ class QString:
         self.position = posE
         self.velocity = velE
         
-        posdd = (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]) / (self.eps**2)
-        posd  = (self.rotate(1)[0] - self.position)/self.eps
-        len_posd = np.linalg.norm(posd,axis=1)
-        len_posd = np.array(map(lambda a: max(a,planck_length),len_posd))
-        acc = np.array(map(lambda dd,d,de: dd/de - dd.dot(d) * d / (de**3),posdd,posd,len_posd))
+        posddH = self.posdd()
+        posdH  = self.posd()
+        len_posdH = np.linalg.norm(posdH,axis=1)
+        len_posdH = np.array(map(lambda a: max(a,planck_length),len_posdH))
+        acc = np.array(map(lambda dd,d,de: dd/de - dd.dot(d) * d / (de**3),posddH,posdH,len_posdH))
         vel = orig_vel + h * self.k/self.m * 0.5 * (acc + accE)
         pos = orig_pos + h * (orig_vel + vel)*0.5
         self.position = pos
@@ -60,7 +73,7 @@ class QString:
     def energy(self):
         vs = np.linalg.norm(self.velocity,axis = 1)**2
         lengths = np.linalg.norm(self.position,axis = 1)
-        return 2 * np.pi *( 0.5 * self.m *(self.eps.transpose()[0]).dot(vs).sum() + self.k *(self.eps.transpose()[0]).dot(lengths).sum())
+        return 2 * np.pi *( 0.5 * self.m *(self.eps).dot(vs).sum() + self.k *(self.eps).dot(lengths).sum())
 
 pos = np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
                 sin(np.arange(0,1,0.01) * 2 * np.pi)])
