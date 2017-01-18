@@ -34,11 +34,15 @@ class QString:
         return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n]))
 
     def posdd(self):
-        return np.array(
-            map(lambda a,b: a/b,
-                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
-                self.eps**2)
-            )
+        try:
+            return np.array(
+                map(lambda a,b: a/b,
+                    (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
+                    self.eps**2)
+                    )
+        except TypeError:
+            print (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0],self.eps**2)
+            raise TypeError
 
     def posd(self):
         return np.array(
@@ -47,38 +51,44 @@ class QString:
                 self.eps))
 
     def re_sample(self):
-        threshold = 1.
-        curvatures = numpy.linalg.norm(
+        threshold = .1
+        curvatures = np.linalg.norm(
                     np.array(map(lambda a,b: a*b, self.acc,self.eps)),
                     axis=1)
         pos = []
         vel = []
         eps = []
-        times = np.cumsum(self.eps)
+        angs = np.cumsum(self.eps)
         
-        i = 0
+        i=0
         while i < len(curvatures):
             if curvatures[i]> threshold:
                 j = i
                 while curvatures[j] > threshold and j < len(self.position):
                     j += 1
-                x,y = self.position[i-1,j+1].transpose()
-                vx,vy = self.velocity[i-1,j+1].transpose()
-                t = times[i-1,j+1]
-                lpos = np.array([scipy.interpolate.lagrange(t,x),scipy.interpolate.lagrange(t,y)])
-                lvel = np.array([scipy.interpolate.lagrange(t,vx),scipy.interpolate.lagrange(t,vy)])
-                for time in np.append(np.arange(times[i,j+1],(times[j+1]-times[i-1])*0.5),times[j+1]):
-                    pos.append([lpos[0](time),lpos[1](time)])                                        
-                    vel.append([lvel[0](time),lvel[1](time)])
-                    eps.append((times[j+1]-times[i-1])*0.5/(j-i+1.))
-                i = j+1
+                x,y = self.position[i-1:j+1].transpose()
+                vx,vy = self.velocity[i-1:j+1].transpose()
+                a = angs[i-1:j+1]
+                lpos = (scipy.interpolate.lagrange(a,x),scipy.interpolate.lagrange(a,y))
+                lvel = (scipy.interpolate.lagrange(a,vx),scipy.interpolate.lagrange(a,vy))
+ #          print i,j,range(i-1,j+1),angs[i-1:j+1],self.position[i-1:j+1]
+ #          print np.arange(angs[i-1],angs[j],(angs[j]-angs[i-1])/(2*(j+1-i)))+ (angs[j]-angs[i-1])/(2*(j+1-i))
+                for ang in np.arange(angs[i-1],angs[j],(angs[j]-angs[i-1])/(2*(j+1-i)))+(angs[j]-angs[i-1])/(2*(j+1-i)):
+ #                  print "angles we interpolate at ",ang, "inserting"
+                    pos.append([lpos[0](ang),lpos[1](ang)])
+ #                  print [lpos[0](ang),lpos[1](ang)]
+                    vel.append([lvel[0](ang),lvel[1](ang)])
+                    eps.append((angs[j]-angs[i-1])*0.5/(j-i+1.))
+                i = j+2                
             else:
+ #              print angs[i], self.position[i]
                 pos.append(self.position[i])
                 vel.append(self.velocity[i])
                 eps.append(self.eps[i])
-            i += 1
+                i += 1
         self.position = np.array(pos)
-        self.velocitity = np.array(vel)
+        self.velocity = np.array(vel)
+        self.eps = np.array(eps)
         
     def increment(self,h):
         orig_pos,orig_vel = self.position,self.velocity
@@ -91,7 +101,6 @@ class QString:
         posE = self.position + h * velE
         self.position = posE
         self.velocity = velE
-        
         posddH = self.posdd()
         self.posddH = posddH
         posdH  = self.posd()
@@ -106,6 +115,7 @@ class QString:
         
         string.curvature = string.max_curvature()
         string.time_elapsed += h
+        string.re_sample()
         return self.position , self.velocity
 
     def energy(self):
@@ -117,12 +127,10 @@ class QString:
         return max(np.linalg.norm(np.array(map(lambda a,b: a*b, self.acc,self.eps)),axis = 1))
 
 pos = np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
-                sin(np.arange(0,1,0.01) * 2 * np.pi)])
-pos =  pos.transpose()
-#vel = 0.375 * np.pi* np.array([-1*sin(np.arange(0,1,0.01) * 2 * np.pi),
-#                np.arange(0,1,0.01) * 0])
-#vel = vel.transpose()
-string = QString(init_pos = pos)
+                sin(np.arange(0,1,0.01) * 2 * np.pi)]).transpose()
+vel = 2* np.pi* np.array([-1*sin(np.arange(0,1,0.01) * 2 * np.pi),
+                np.arange(0,1,0.01) * 0]).transpose()
+string = QString(init_pos = pos,init_vel = vel)
 
 fig = plt.figure()
 ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
@@ -145,8 +153,9 @@ def animate(i):
     string.increment(h)
     x,y = string.position.transpose()
     line.set_data(x,y)
+#    time_text.set_text('curve = ' + str(string.curvature))
     time_text.set_text('time = ' + str(string.time_elapsed))
-    energy_text.set_text('energy = %.3f J' % string.energy())
+#    energy_text.set_text('energy = %.3f J' % string.energy())
 
     return line,  time_text, energy_text
 
