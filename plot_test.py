@@ -114,8 +114,8 @@ ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
 ax.grid()
 
 line, = ax.plot([], [], 'o-', lw=2)
-time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
-energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
+#time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+#energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
 
 def init():
     """initialize animation"""
@@ -150,5 +150,3 @@ ani = animation.FuncAnimation(fig, animate, frames=300,
 # your system: for more information, see
 # http://matplotlib.sourceforge.net/api/animation_api.html
 #ani.save('double_pendulum.mp4', fps=30, extra_args=['-vcodec', 'libx264'])
-
-plt.show()
