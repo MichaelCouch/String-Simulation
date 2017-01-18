@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import scipy.integrate as integrate
 import matplotlib.animation as animation
 
-num_steps  = 100 # number of time intervals
+num_steps  = 10000 # number of time intervals
 total_time = 10.
 h = total_time / num_steps
 planck_length = 0.01
@@ -57,29 +57,35 @@ fig = plt.figure()
 ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
                      xlim=(-2, 2), ylim=(-2, 2))
 ax.grid()
-line = ax.plot([], [], 'o-', lw=2)
+line, = ax.plot([], [], 'o-', lw=2)
+time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
+print line
 
 def init():
     """initialize animation"""
     line.set_data([], [])
-#    time_text.set_text('')
-#    energy_text.set_text('') 
-    return line#, time_text, energy_text
+    time_text.set_text('')
+    energy_text.set_text('') 
+    return line, time_text, energy_text
 
 def animate(i):
     """perform animation step"""
     global string, h
     string.increment(h)
-    line.set_data(string.position.transpose()[0],string.position.transpose()[1])
-#    time_text.set_text('time = %.1f' % pendulum.time_elapsed)
-#    energy_text.set_text('energy = %.3f J' % pendulum.energy())
-    return line#, time_text, energy_text
+    x,y = string.position.transpose()
+    line.set_data(x,y)
+    time_text.set_text('time = ')
+    energy_text.set_text('energy = %.3f J' % string.energy())
+    return line,  time_text, energy_text
 
 from time import time
 t0 = time()
 animate(0)
 t1 = time()
-interval = 1000 * h - (t1 - t0)
+interval = (1000 * h - (t1 - t0))
 
 ani = animation.FuncAnimation(fig, animate, frames=300,
                               interval=interval, blit=True, init_func=init)
+
+plt.show()
