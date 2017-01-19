@@ -104,7 +104,7 @@ class DoublePendulum:
 #------------------------------------------------------------
 # set up initial state and global variables
 pendulum = DoublePendulum([180., 200.0, -20., 0.0])
-dt = 1./30 # 30 fps
+dt = 1./60 # 30 fps
 
 #------------------------------------------------------------
 # set up figure and animation
@@ -114,8 +114,8 @@ ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
 ax.grid()
 
 line, = ax.plot([], [], 'o-', lw=2)
-#time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
-#energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
+time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
 
 def init():
     """initialize animation"""

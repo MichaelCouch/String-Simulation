@@ -5,7 +5,7 @@ import scipy.interpolate
 import matplotlib.animation as animation
 
 
-num_steps  = 10000 # number of time intervals
+num_steps  = 1000 # number of time intervals
 total_time = 10.
 h = total_time / num_steps
 planck_length = 0.01
@@ -31,18 +31,15 @@ class QString:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
         
     def rotate(self,n=1):
-        return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n]))
+        return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n])),np.concatenate((self.eps[n:], self.eps[:n]))
 
     def posdd(self):
-        try:
-            return np.array(
-                map(lambda a,b: a/b,
-                    (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
-                    self.eps**2)
-                    )
-        except TypeError:
-            print (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0],self.eps**2)
-            raise TypeError
+        return np.array(
+            map(lambda a,b,c: a/(b*c),
+                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
+                self.eps,
+                self.rotate(-1)[2])
+                )
 
     def posd(self):
         return np.array(
@@ -112,10 +109,9 @@ class QString:
         pos = orig_pos + h * (orig_vel + vel)*0.5
         self.position = pos
         self.velocity = vel
-        
         string.curvature = string.max_curvature()
         string.time_elapsed += h
-        string.re_sample()
+        #string.re_sample()
         return self.position , self.velocity
 
     def energy(self):
@@ -128,8 +124,8 @@ class QString:
 
 pos = np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
                 sin(np.arange(0,1,0.01) * 2 * np.pi)]).transpose()
-vel = 2* np.pi* np.array([-1*sin(np.arange(0,1,0.01) * 2 * np.pi),
-                np.arange(0,1,0.01) * 0]).transpose()
+vel =  0.5 * np.pi* np.array([-1*sin(np.arange(0,1,0.01) * 2 * np.pi),
+                cos(np.arange(0,1,0.01) * 2 * np.pi)]).transpose()
 string = QString(init_pos = pos,init_vel = vel)
 
 fig = plt.figure()
