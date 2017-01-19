@@ -33,6 +33,8 @@ class cylinder_solver:
                 raise ValueError("Please provide boundary conditions")
         self.dt = dt
         self.dx = dx
+        self.velocity = self.compute_speed()
+        self.extension = self.compute_extension()
 
     def interpolate_BCs(self,mesh):
         stateTrans = np.zeros((mesh[1],mesh[0],2))
@@ -40,5 +42,27 @@ class cylinder_solver:
             stateTrans[j] = np.array([np.linspace(self.boundary_conditions[0,j,0],self.boundary_conditions[1,j,0],mesh[0]),
                              np.linspace(self.boundary_conditions[0,j,1],self.boundary_conditions[1,j,1],mesh[0])]).transpose()
         return stateTrans.transpose((1,0,2))
+
+    #def rotate(self,n=1):
+    #    return (
+    #        concatenate((self.state[n:]),self.state[:n]),
+            
+
+    def action(self):
         
-                             
+
+    def compute_velocity(self)
+        vel = np.zeros((self.state,shape[0]-1,self.state.shape[1],2))
+        for i in range(self.state.shape[0]-1)):
+            for j in range(self.state.shape[1]):
+                inc_j = j+1 % self.state.shape[1]
+                vel[i,j] = 1./(2 * self.dt) (self.state[i+1,j] - self.state[i,j] + self.state[i+1,inc_j]- self.state[i,inc_j])
+        return vel
+    
+    def compute_extension(self)
+        ext = np.zeros((self.state,shape[0]-1,self.state.shape[1],2))
+        for i in range(self.state.shape[0]-1)):
+            for j in range(self.state.shape[1]):
+                inc_j = j+1 % self.state.shape[1]
+                ext[i,j] = 1./(2 * self.dx) (self.state[i+1,inc_j] - self.state[i+1,j] + self.state[i,inc_j] - self.state[i,j])
+        return ext
