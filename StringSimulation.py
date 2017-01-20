@@ -29,23 +29,39 @@ class QString:
         self.eps = np.ones(len(self.position))*2.*np.pi / len(self.position)
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
+        self.ext,self.extext = self.compute_extension()
         
     def rotate(self,n=1):
         return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n])),np.concatenate((self.eps[n:], self.eps[:n]))
 
-    def posdd(self):
-        return np.array(
-            map(lambda a,b,c: a/(b*c),
-                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
-                self.eps,
-                self.rotate(-1)[2])
-                )
+#    def posdd(self):
+#        return np.array(
+#            map(lambda a,b,c: a/(b*c),
+#                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
+#                self.eps,
+#                self.rotate(-1)[2])
+#                )
+    def compute_extension(self)
+        yminus, vminus, epsminus=self.rotate(-1)  
+        y, eps = self.postition, self.eps  
+        yplus, vplus, epsplus=self.rotate(1)
+        return  (        (yplus * (eps**2) - yminus * (epsplus**2) + (epsplus + eps)*(epsplus - eps)*y) /
+        ((epsplus + eps)*(eps)*(epsplus)),
+                         2 * (yminus * epsplus) + yplus*eps - y * (epsplus + eps) /
+        ((epsplus + eps)*(eps)*(epsplus)))
+        
+        
 
-    def posd(self):
-        return np.array(
-            map(lambda a,b: a/b,
-                (self.position - self.rotate(1)[0]),
-                self.eps))
+#    def posd(self):
+#        return np.array(
+#            map(lambda a,b: a/b,
+#                (self.position - self.rotate(1)[0]),
+#                self.eps))
+        posd = np.zeros(self.position.shape)
+        for i in len(self.position):
+            inc_i = (i+1)%len(self.position)
+            posd = self.position
+            
 
     def re_sample(self):
         threshold = .1
