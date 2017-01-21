@@ -22,53 +22,73 @@ class QString:
         self.velocity = init_vel
         self.h = hh
         if self.position == None:
-            self.position = np.zeros(self.velocity.shape)
+            self.position = np.array([np.zeros(pos.shape)*2.*np.pi / len(pos) for pos in self.velocity])
         if self.velocity == None:
-            self.velocity = np.zeros(self.position.shape)
+            self.velocity = np.array([np.zeros(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
         self.m = m
         self.k = k
         self.time_elapsed = 0.
-        self.eps = np.ones(len(self.position))*2.*np.pi / len(self.position)
+        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
-        self.ext,self.extext = self.compute_extension()
+#        self.ext,self.extext = self.compute_extension()
         
     def rotate(self,n=1):
-        return np.concatenate((self.position[n:],self.position[:n])), np.concatenate((self.velocity[n:], self.velocity[:n])),np.concatenate((self.eps[n:], self.eps[:n]))
-
+        return (np.array([np.concatenate((pos[n:],pos[:n])) for pos in self.position]),
+                np.array([np.concatenate((vel[n:],vel[:n])) for vel in self.velocity]),
+                np.array([np.concatenate((ha[n:],ha[:n])) for ha in self.eps]))
+                
     def rotate_Euler(self,n=1):
-        return np.concatenate((self.positionEuler[n:],self.positionEuler[:n])),np.concatenate((self.eps[n:], self.eps[:n]))
+        return (np.array([np.concatenate((pos[n:],pos[:n])) for pos in self.positionEuler]),
+                np.array([np.concatenate((eps[n:],eps[:n])) for eps in self.eps]))
 
-#    def posdd(self):
-#        return np.array(
-#            map(lambda a,b,c: a/(b*c),
-#                (self.rotate(-1)[0] - 2 * self.position + self.rotate(1)[0]),
-#                self.eps,
-#                self.rotate(-1)[2])
-#                )
+    def map_level(self,f, item, level):
+        if level == 0:
+            return f(item)
+        else:
+            return [self.map_level(f, i, level - 1) for i in item]
+
 
     def compute_extension(self):
         yminus, vminus, epsminus=self.rotate(-1)  
-        y, eps = self.position, np.array([self.eps,self.eps]).transpose()  
+        y, eps = self.position, self.eps  
         yplus, vplus, epsplu=self.rotate(1)
         epsplus = np.array([epsplu,epsplu]).transpose()   
-        return  ( 1/(eps + epsplus) * ((yplus - y)*eps/(epsplus) + (y - yminus)*epsplus/eps),
-                    2/(eps + epsplus) * ( (yplus - y)/epsplus - (y - yminus)/eps ) )
-
+#        return  ( 1/(eps + epsplus) * ((yplus - y)*eps/(epsplus) + (y - yminus)*epsplus/eps),
+#                    2/(eps + epsplus) * ( (yplus - y)/epsplus - (y - yminus)/eps ) )
+        try:
+            return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)),
+                    1/(eps**2) * ( (yplus - y) - (y - yminus)) )
+        except ValueError:
+            print y.shape, yplus.shape, yminus.shape,eps.shape
+            raise
+        
     def compute_extension_Euler(self):
+##        yminus, epsminus=self.rotate_Euler(-1)  
+##        y, eps = self.positionEuler, np.array([self.eps,self.eps]).transpose()  
+##        yplus, epsplu=self.rotate_Euler(1)
+##        epsplus = np.array([epsplu,epsplu]).transpose()  
+##        return  ( 1/(eps + epsplus) * ((yplus - y)*eps/(epsplus) + (y - yminus)*epsplus/eps),
+##                    2/(eps + epsplus) * ( (yplus - y)/epsplus - (y - yminus)/eps ) )
         yminus, epsminus=self.rotate_Euler(-1)  
-        y, eps = self.positionEuler, np.array([self.eps,self.eps]).transpose()  
+        y, eps = self.positionEuler, self.eps  
         yplus, epsplu=self.rotate_Euler(1)
-        epsplus = np.array([epsplu,epsplu]).transpose()  
-        return  ( 1/(eps + epsplus) * ((yplus - y)*eps/(epsplus) + (y - yminus)*epsplus/eps),
-                    2/(eps + epsplus) * ( (yplus - y)/epsplus - (y - yminus)/eps ) )        
+        epsplus = np.array([epsplu,epsplu]).transpose()   
+#        return  ( 1/(eps + epsplus) * ((yplus - y)*eps/(epsplus) + (y - yminus)*epsplus/eps),
+#                    2/(eps + epsplus) * ( (yplus - y)/epsplus - (y - yminus)/eps ) )
+        try:
+            return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)),
+                    1/(eps**2) * ( (yplus - y) - (y - yminus)) )
+        except ValueError:
+            print y.shape, yplus.shape, yminus.shape,eps.shape
+            raise
         
     def acc(self,ext,extext):
-        acc = np.array(
-            map(lambda dd,d,de: dd, #dd/de - dd.dot(d) * d / (de**3) ,
-                extext,    ext,   np.linalg.norm(ext,axis=1)))
-        return acc
-
+#        acc = np.array(
+#            map(lambda dd,d,de: dd, #dd/de - dd.dot(d) * d / (de**3) ,
+#                extext,    ext,   np.linalg.norm(ext,axis=1)))
+#        return acc
+        return extext
 #    def posd(self):
 #        return np.array(
 #            map(lambda a,b: a/b,
@@ -150,6 +170,7 @@ class QString:
         return self.h * max([max(np.linalg.norm(self.accel,axis=1)),max(np.linalg.norm(self.velocity,axis=1))])
         
     def increment(self):
+        print len(self.position)," loops"
         h = self.h
         self.ext,self.extext = self.compute_extension()
         accE = self.acc(self.ext,self.extext)
@@ -171,6 +192,7 @@ class QString:
 ##        self.curvature = string.max_curvature()
         self.time_elapsed += h
 #        self.re_sample()
+        self.interaction()
         return self.position , self.velocity
 
     def energy(self):
@@ -178,8 +200,47 @@ class QString:
         lengths = np.linalg.norm(self.position,axis = 1)
         return 2 * np.pi *( 0.5 * self.m *(self.eps).dot(vs).sum() + self.k *(self.eps).dot(lengths).sum())
 
-#    def max_curvature(self):
-#        return max(np.linalg.norm(np.array(map(lambda a,b: a*b, self.acc,self.eps)),axis = 1))
+    def interaction(self):
+        out = []
+        outvel = []
+        num_loops = len(self.position)
+        for loop_index in range(num_loops):
+            loop = self.position[loop_index]
+            loopvel = self.velocity[loop_index]
+            loop_processed = False
+            if len(loop) > 6:
+                for element_index in range(len(loop)-1):
+                    for other_element_index in range(element_index+5,min(len(loop)-5+element_index,len(loop))):
+                        if type(self.position[0][0][0]) != np.float64:
+                            print "Oh Noes!",element_index, other_element_index,
+                        try:
+                            if np.linalg.norm(loop[element_index] - loop[other_element_index]) <min(np.linalg.norm(loop[element_index] - loop[element_index+1]),0.1):
+                                if np.random.rand() < .05 and not loop_processed:
+                                    loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
+                                    loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
+                                    loop2 = loop[element_index:other_element_index]
+                                    loopvel2 = loopvel[element_index:other_element_index]
+                                    out.append(loop1)
+                                    outvel.append(loopvel1) 
+                                    out.append(loop2)
+                                    outvel.append(loopvel2)
+                                    loop_processed = True
+                                    print out, outvel,"great!"
+                        except ValueError:
+                           # print loop_index, element_index, other_element_index#, loop[element_index]
+                            raise
+                        if loop_processed:
+                            break
+                    if loop_processed:
+                        break
+            if not loop_processed:
+                out.append(loop)
+                outvel.append(loopvel)
+        self.position = np.array(out)
+        self.velocity = np.array(outvel)
+        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
+                            
+                    
 
     def plotter(self):
         fig = plt.figure()
@@ -201,11 +262,11 @@ class QString:
         def animate(i):
             """perform animation step"""
             self.increment()
-            x,y = self.position.transpose()
+            x,y = np.concatenate(self.position).transpose()
             line.set_data(x,y)
         #    time_text.set_text('curve = ' + str(string.curvature))
             time_text.set_text('time = ' + str(self.time_elapsed))
-            energy_text.set_text('energy = %.3f J' % self.energy())
+         #   energy_text.set_text('energy = %.3f J' % self.energy())
             other_text.set_text('h = ' + str(self.h))
 
             return line,  time_text, energy_text,other_text
@@ -224,19 +285,33 @@ class QString:
 
 
 
-poss,vels = np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
-                sin(np.arange(0,1,0.01) * 2 * np.pi)]).transpose(),0.5*np.pi* np.array([1*sin(np.arange(0,1,0.01) * 3* 2 * np.pi),
-                cos(np.arange(0,1,0.01)*2 * 2 * np.pi)]).transpose()
-vels = vels - vels.sum(0)/len(vels)
-string = QString(init_pos = poss,init_vel = vels)
+poss,vels = (
+    np.array([np.array([
+        cos(np.arange(0,1,0.01) * 2 * np.pi),
+        sin(np.arange(0,1,0.01) * 2 * np.pi)]).transpose()]),
+    np.array([0.5*np.pi* np.array([1*sin(np.arange(0,1,0.01) * 3* 2 * np.pi),
+                cos(np.arange(0,1,0.01)*2 * 2 * np.pi)]).transpose()]))
+#vels = vels - vels.sum(0)/len(vels)
+string = QString(init_pos = poss)
     
 ttring = QString(init_pos = poss,init_vel = 0*vels)
 
-pos = 5* np.array(
-    [np.cos(np.array([np.arange(10)]).transpose().dot(np.array([np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10),
-     np.cos(np.array([np.arange(10)]).transpose().dot(np.array([np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()+poss
-vel = np.array(
-    [np.cos(np.array([np.arange(10)]).transpose().dot(np.array([np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10),
-     np.sin(np.array([np.arange(10)]).transpose().dot(np.array([np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()+vels
-vel = vel - vel.sum(0)/len(vels)
+pos = 5*np.array([np.array(
+    [np.cos(
+        np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))
+        ).transpose().dot(np.random.rand(10)/10-.5/10),
+     np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()])+poss
+vel = np.array(np.array([np.array(
+    [np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10),
+     np.sin(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()]))
+
 sstring = QString(init_pos = pos,init_vel = vel)
+
+
+pos = np.array([
+    np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
+              sin(np.arange(0,1,0.01) * 2 * np.pi)]).transpose(),
+    ])
+
+ssttring = QString(init_pos = pos,hh=0.01)
+
