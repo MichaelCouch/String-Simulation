@@ -200,10 +200,12 @@ class QString:
     def energy(self):
         vs = np.array([np.linalg.norm(vel,axis = 1)**2 for vel in self.velocity])
         lengths = np.array([np.linalg.norm(ex,axis = 1) for ex in self.ext])
+        poss = np.array([np.linalg.norm(pos,axis = 1)**2 for pos in self.position])
         vs = np.concatenate(vs)
         lengths = np.concatenate(lengths)
         eps = np.concatenate(self.eps)
-        return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + (self.k *eps.transpose().dot(lengths)).sum())
+        poss = np.concatenate(poss)
+        return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + (self.k *eps.transpose().dot(lengths)).sum()+ (0.1 *eps.transpose().dot(poss)).sum())
 
     def interaction(self):
         out = []
@@ -307,7 +309,7 @@ class QString:
                 if min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
 #                    print "Interaction possible at loop ",loop_index_1," sites ",element_index,other_element_index 
 #                    print np.linalg.norm(loop[element_index] - loop[other_element_index])
-                    if np.linalg.norm(loop[element_index] - loop[other_element_index]) < 0.1:#min(np.linalg.norm(loop[element_index] - loop[(element_index+1)%len(loop)]),0.1):
+                    if np.linalg.norm(loop[element_index] - loop[other_element_index]) < min(10*np.linalg.norm(loop[element_index] - loop[(element_index+2)%len(loop)]),0.1):
                         print "INTERACTION!"
                         loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
                         loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
@@ -334,7 +336,7 @@ class QString:
             element_index_1 = np.random.randint(len(loop_1))
             element_index_2 = np.random.randint(len(loop_2))
             try:
-                if np.linalg.norm(loop_1[element_index_1] - loop_2[element_index_2]) < 0.1:
+                if np.linalg.norm(loop_1[element_index_1] - loop_2[element_index_2]) < min(10*np.linalg.norm(loop_1[element_index_1] - loop_1[(element_index_1+2)%len(loop_1)]),0.1):
                     print "INTERACTION!"
                     loop = np.concatenate((
                         loop_1[:element_index_1],loop_2[element_index_2:],loop_2[:element_index_2],loop_1[element_index_1:]
@@ -390,7 +392,7 @@ class QString:
             #time_text.set_text('curve = ' + str(string.curvature))
             time_text.set_text('time = ' + str(self.time_elapsed))
             energy_text.set_text('energy = %.3f J' % self.energy())
-            other_text.set_text('h = ' + str(self.h))
+            other_text.set_text('Loop Count = ' + str(self.position.shape[0]))
 
             return line,  time_text, energy_text,other_text
 
@@ -412,8 +414,8 @@ poss,vels = (
     np.array([np.array([
         cos(np.arange(0,1,0.0025) * 2 * np.pi),
         sin(np.arange(0,1,0.0025) * 2 * np.pi)]).transpose()]),
-    np.array([0.5*np.pi* np.array([1*sin(np.arange(0,1,0.01) * 3* 2 * np.pi),
-                cos(np.arange(0,1,0.01)*2 * 2 * np.pi)]).transpose()]))
+    np.array([0.5*np.pi* np.array([1*sin(np.arange(0,1,0.0025) * 3* 2 * np.pi),
+                cos(np.arange(0,1,0.0025)*2 * 2 * np.pi)]).transpose()]))
 #vels = vels - vels.sum(0)/len(vels)
 string = QString(init_pos = poss)
     
@@ -429,6 +431,26 @@ vel = np.array(np.array([np.array(
      np.sin(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()]))
 
 sstring = QString(init_pos = pos,init_vel = vel)
+
+pos = (
+    5*np.array([np.array(
+    [np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
+     np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()])
+    +5*np.array([np.array(
+    [np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
+     np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()])
+    +2*poss)
+
+
+vel = (np.array(np.array([np.array(
+    [np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
+     np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()]))+
+    np.array(np.array([np.array(
+    [np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
+     np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()]))
+       +2*vels)
+
+s = QString(init_pos = pos,init_vel = vel)
 
 
 pos = np.array([
