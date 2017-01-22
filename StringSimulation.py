@@ -287,23 +287,27 @@ class QString:
         out = []
         outvel = []
         loop_index_1,loop_index_2 = np.random.randint(0,len(self.position)),np.random.randint(0,len(self.position))
-        for loop_index,loop in enumerate(self.position):
-            loopvel = self.velocity[loop_index]
+        for loop_index,loops in enumerate(self.position):
+            loopvels = self.velocity[loop_index]
             if loop_index != loop_index_1 and loop_index != loop_index_2:
-                out.append(loop)
-                outvel.append(loopvel)
-                print "added non-interacting loops"
+                out.append(loops)
+                outvel.append(loopvels)
+                #print "added non-interacting loops"
         if loop_index_1 == loop_index_2:
             loop = self.position[loop_index_1]
+            loopvel = self.velocity[loop_index_1]
             loop_processed = False
             if len(loop) > 6:
-                loopvel = self.velocity[loop_index_1]
-                element_index = np.random.randint(0,len(loop))
-                other_element_index = np.random.randint(0,len(loop))
-                if abs(other_element_index-element_index)>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
+                a = np.random.randint(len(loop))
+                b = np.random.randint(len(loop))
+                if a < b:
+                    element_index,other_element_index = a,b
+                else:
+                    element_index,other_element_index = b,a
+                if min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
 #                    print "Interaction possible at loop ",loop_index_1," sites ",element_index,other_element_index 
 #                    print np.linalg.norm(loop[element_index] - loop[other_element_index])
-                    if np.linalg.norm(loop[element_index] - loop[other_element_index]) < min(np.linalg.norm(loop[element_index] - loop[(element_index+1)%len(loop)]),0.1):
+                    if np.linalg.norm(loop[element_index] - loop[other_element_index]) < 0.1:#min(np.linalg.norm(loop[element_index] - loop[(element_index+1)%len(loop)]),0.1):
                         print "INTERACTION!"
                         loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
                         loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
@@ -312,31 +316,53 @@ class QString:
                         loopvel2 = loopvel[element_index:other_element_index]
                         print "2ns loop ok"
                         out.append(loop1)
-                        outvel.append(loopvel1) 
+                        outvel.append(loopvel1*0.9) #dampen the energy gain    ) 
                         out.append(loop2)
-                        outvel.append(loopvel2)
+                        outvel.append(loopvel2*0.9) #dampen the energy gain    )
                         print "loops added"
                         loop_processed = True
+                        if len(loopvel1) + len(loopvel2) != len(loopvel):
+                            raise ValueError("changed number of points in velocity")
             if not loop_processed:
                 out.append(loop)
                 outvel.append(loopvel)
         else: #loops different
-            out.append(self.position[loop_index_1])
-            outvel.append(self.velocity[loop_index_1])
-            out.append(self.position[loop_index_2])
-            outvel.append(self.velocity[loop_index_2])
+            loop_1 = self.position[loop_index_1]
+            loop_2 = self.position[loop_index_2]
+            loopvel_1 = self.velocity[loop_index_1]
+            loopvel_2 = self.velocity[loop_index_2]
+            element_index_1 = np.random.randint(len(loop_1))
+            element_index_2 = np.random.randint(len(loop_2))
+            try:
+                if np.linalg.norm(loop_1[element_index_1] - loop_2[element_index_2]) < 0.1:
+                    print "INTERACTION!"
+                    loop = np.concatenate((
+                        loop_1[:element_index_1],loop_2[element_index_2:],loop_2[:element_index_2],loop_1[element_index_1:]
+                        ))
+                    loopvel = np.concatenate((
+                        loopvel_1[:element_index_1],loopvel_2[element_index_2:],loopvel_2[:element_index_2],loopvel_1[element_index_1:]
+                        ))
+                    out.append(loop)
+                    outvel.append(loopvel*0.9) #dampen the energy gain  
+                else:
+                    out.append(loop_1)
+                    outvel.append(loopvel_1) 
+                    out.append(loop_2)
+                    outvel.append(loopvel_2)
+            except IndexError:
+                print loop_index_1,element_index_1,len(loop_1),loop_index_2,element_index_2,len(loop_2)
+                raise
+        if len(np.concatenate(np.array(outvel))) != self.num_points:
+            raise ValueError("You changed the number of points some points, loop indices" + str(loop_index_1) + str(loop_index_2))
         self.position = np.array(out)
-        self.velocity = np.array(outvel)
-        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
-        if len(np.concatenate(self.position)) != self.num_points or len(np.concatenate(self.velocity)) != self.num_points:
-            raise ValueError("You lost some points")
-
+        self.velocity = np.array(outvel)    
+        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])            
                     
 
     def plotter(self,N):
         fig = plt.figure()
         ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
-                             xlim=(-2, 2), ylim=(-2, 2))
+                             xlim=(-3, 3), ylim=(-3,3))
         ax.grid()
         line, = ax.plot([], [], 'bo', lw=2)
         time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
