@@ -6,19 +6,18 @@ import matplotlib.animation as animation
 import time
 
 
-num_steps  = 1000 # number of time intervals
-total_time = 10.
-hh = total_time / num_steps
-planck_length = 0.01
 
 class QString:
-
+    """
+    A class representing a number of strings subject to a spring-like potential as it evolves in time. Strings interact, merging and splitting stochastically where they approach one another. At each time step, the string may be considered to be a section of the bundle
+    sigma*(T R^2) for a smooth map sigma:(S^1)^n -> R^2, where n is the number of strings at that time.
+    """
     def __init__(self,
-                 h=0.01,
-                 init_pos = None,
-                 init_vel = None,
-                 m = 1.,
-                 k = 1.):
+                 h=0.01,    # the integration time step
+                 init_pos = None, # a list of lists giving the location of strings sampled at regular intervals around the source S^1
+                 init_vel = None, # a list of lists giving the local velocity of strings sampled at regular intervals around the source S^1
+                 m = 1., #mass per unit angle of the string.
+                 k = 1.): #spring constant per unit angle of the string
         self.m = m
         self.k = k
         self.time_elapsed = 0.
@@ -26,7 +25,8 @@ class QString:
         self.velocity = init_vel
         self.initial_position = init_pos
         self.initial_velocity = init_vel
-        self.h = h
+        self.h = h 
+        #Next, some sanity checks on input.
         if self.position is None:
             self.position = np.array([np.zeros(pos.shape)*2.*np.pi / len(pos) for pos in self.velocity])
         if self.velocity is None:
@@ -36,314 +36,133 @@ class QString:
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
 
-    def re_init(self):
+    def re_init(self): #reset the string to initial configuration
         self.__init__(init_pos = self.initial_position, init_vel = self.initial_velocity)
    
-    def rotate(self,lists = None,n=1):
+    def rotate(self,lists = None,n=1): #rotate the source circles by n elements.
         if lists is None:
             lists = self.position
         return np.array([np.concatenate((pos[n:],pos[:n])) for pos in lists])
 
-    def normsqr(self,list_of_list_of_vectors):
+    def normsqr(self,list_of_list_of_vectors): #compute the norm square of each vector in a list of list of vectors, and collect them in a single list.
         return np.concatenate(np.array([np.linalg.norm(list_of_vectors,axis = 1)**2 for list_of_vectors in list_of_list_of_vectors]))
                 
-    def compute_deriv(self,positions=None,epsilons=None):
-        if positions is None:
+    def compute_deriv(self,positions=None,epsilons=None): #compute the first and second derivatives of the position of a 
+        if positions is None: #hack so default values can be attributes of self
             positions = self.position
         if epsilons is None:
             epsilons = self.eps
-        yminus=self.rotate(n=-1,lists = positions)  
+        yminus=self.rotate(n=-1, lists = positions)  
         y, eps = positions, epsilons
-        yplus =self.rotate(n=1,lists = positions)
-        return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)),
-                1/(eps**2) * ( (yplus - y) - (y - yminus)) )        
-
+        yplus =self.rotate(n=1,  lists = positions)
+        return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)), #first derivative
+                1/(eps**2) * ( (yplus - y) - (y - yminus)) ) #second
    
-    def acc(self,deriv,secondderiv,static_oscillator_parameter = 0.1,drag_coefficient=0):
-        return self.k / self.m * secondderiv - static_oscillator_parameter * self.position - drag_coefficient*self.velocity
-
-#        acc = np.array(
-#            map(lambda dd,d,de: dd, #dd/de - dd.dot(d) * d / (de**3) ,
-#                extext,    ext,   np.linalg.norm(ext,axis=1)))
-#        return acc
-            
-
-
-    def integrate(self,initial_position,initial_velocity,velocity,acceleration):
+    def acc(self,deriv,secondderiv,static_oscillator_parameter = [0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
+        return self.k / self.m * secondderiv - [pos.dot([[static_oscillator_parameter[0],0],[0,static_oscillator_parameter[1]]]) for pos in self.position] - drag_coefficient*self.velocity
+    
+    def integrate(self,initial_position,initial_velocity,velocity,acceleration): #an integration step
         new_velocity = initial_velocity + self.h * acceleration
         new_position = initial_position + self.h * velocity
         return new_position,new_velocity
 
-    def symplectic_integrate(self,initial_position,initial_velocity,velocity,acceleration):
+    def symplectic_integrate(self,initial_position,initial_velocity,acceleration): # a symplectic integration step
         new_velocity = initial_velocity + self.h * acceleration
         new_position = initial_position + self.h * new_velocity
         return new_position,new_velocity
 
-
-
-    def energy(self):
+    def energy(self): #the kinetic, self-potential and fixed external potential of the string. Conserved in physics
         vs,lengths,poss = self.normsqr(self.velocity),self.normsqr(self.compute_deriv()[0]),self.normsqr(self.position)
         eps = np.concatenate(self.eps)
         return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + 0.5*(self.k *eps.transpose().dot(lengths)).sum()+ 0.5*(0.1 *eps.transpose().dot(poss)).sum())
 
+    def com(self): #the centre of mass of the system. Not conserved unless the exterior potential is zero
+        com = (np.concatenate(self.position).sum(axis = 0)/self.num_points)
+        return round(com[0],3),round(com[1],3)
 
-    def compute_state_magnitude(self,pos,vel):
-        return (max(0.1*self.m /self.k * self.normsqr(vel) + self.normsqr(pos)))**(0.5)
+    def compute_state_magnitude(self,pos,vel): #A measure of the size of a state, in length units. The intention is to use this for adaptive step sizes
+        return (max(self.m /self.k * self.normsqr(vel) + self.normsqr(pos)))**(0.5)
         
-    def increment(self):
-#        print len(self.position)," loops"
-        deriv,secondderiv = self.compute_deriv()
+    def increment(self): #A time step using symplectic Heun's method
+        deriv,secondderiv = self.compute_deriv(positions = self.position)
         accE = self.acc(deriv,secondderiv)
-        positionEuler, velocityEuler = self.symplectic_integrate(self.position,self.velocity,self.velocity,accE)
+        positionEuler, velocityEuler = self.symplectic_integrate(self.position,self.velocity,accE) #Initial Euler step
         deriv,secondderiv = self.compute_deriv(positions=positionEuler) 
         accH = self.acc(deriv,secondderiv)
-        positionHeun, velocityHeun = self.symplectic_integrate(self.position,self.velocity,0.5 * (self.velocity + velocityEuler),0.5 *(accE + accH))
+        positionHeun, velocityHeun = self.symplectic_integrate(self.position,self.velocity,0.5 *(accE + accH)) #Heun's step
+#        err = min(max(self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun),0.001),0.1) #difference between Heun and Euler integrations estimate the local truncation error to O(t^3)
+#        h_old = self.h
         self.position,self.velocity = positionHeun,velocityHeun
-        err = self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun)
-#        self.position,self.velocity = positionEuler,velocityEuler
-        h_old = self.h
-        self.h *= np.sqrt(0.01/err)
-        print round(np.log10(self.h))
-        if np.random.rand()/self.num_points**2 < .00005:
-            self.faster_interaction()
-####        self.accel = accH
-###     if self.max_move()> .01:
-####            self.h = 0.5 * h
-####            return self.position , self.velocity
-####        if self.max_move()< .003:
-####            self.h = 2 * h
-        self.time_elapsed += h_old
-        #time.sleep(10*self.h)
-        if self.time_elapsed > 10:
-            self.re_init()
+        if np.random.rand()/self.num_points**2 < .0005: #allow self interactions randomly, at most one per time step.
+            self.interaction()
         return self.position , self.velocity
 
 
-##    def re_sample(self):
-##        threshold = .1
-##        curvatures = np.linalg.norm(
-##                    self.acc,
-##                    axis=1)
-##        pos = []
-##        vel = []
-##        eps = []
-##        angs = np.cumsum(self.eps)
-##        
-##        i=0
-##        while i < len(curvatures):
-##            if curvatures[i]> threshold:
-##                j = i
-##                while j < len(self.position) and curvatures[j] > threshold:
-##                    j += 1
-##                    #now j is the first time curvature isnt too large
-##                #indexing problem here when we go around the circle
-##                if j < len(self.position):
-##                    inc_j = (j+1)%len(self.position)
-##                    x,y = self.position[i-1:inc_j].transpose()
-##                    vx,vy = self.velocity[i-1:inc_j].transpose()
-##                    a = angs[i-1:inc_j]
-##                    lpos = (scipy.interpolate.lagrange(a,x),scipy.interpolate.lagrange(a,y))
-##                    lvel = (scipy.interpolate.lagrange(a,vx),scipy.interpolate.lagrange(a,vy))
-##     #          print i,j,range(i-1,j+1),angs[i-1:j+1],self.position[i-1:j+1]
-##     #          print np.arange(angs[i-1],angs[j],(angs[j]-angs[i-1])/(2*(j+1-i)))+ (angs[j]-angs[i-1])/(2*(j+1-i))
-##                    for ang in np.arange(angs[i-1],angs[j],(angs[j]-angs[i-1])/(2*(j+1-i)))+(angs[j]-angs[i-1])/(2*(j+1-i)):
-##     #                  print "angles we interpolate at ",ang, "inserting"
-##                        pos.append([lpos[0](ang),lpos[1](ang)])
-##     #                  print [lpos[0](ang),lpos[1](ang)]
-##                        vel.append([lvel[0](ang),lvel[1](ang)])
-##                        eps.append((angs[j]-angs[i-1])*0.5/(j-i+1.))
-##                else:
-##                    try:
-##                        x,y = np.concatenate((self.position[i-1:],self.position[:1])).transpose()
-##                        vx,vy = np.concatenate((self.velocity[i-1:],self.velocity[:1])).transpose()
-##                        a = np.append(angs[i-1:],angs[0]+2 *np.pi)
-##                    except ValueError:
-##                        print self.position[i-1:].shape,self.position[:1].shape
-##                        raise
-##                    lpos = (scipy.interpolate.lagrange(a,x),scipy.interpolate.lagrange(a,y))
-##                    lvel = (scipy.interpolate.lagrange(a,vx),scipy.interpolate.lagrange(a,vy))
-##     #          print i,j,range(i-1,j+1),angs[i-1:j+1],self.position[i-1:j+1]
-##     #          print np.arange(angs[i-1],angs[j],(angs[j]-angs[i-1])/(2*(j+1-i)))+ (angs[j]-angs[i-1])/(2*(j+1-i))
-##                    for ang in np.arange(angs[i-1],angs[0]+2*np.pi,(angs[0]+2*np.pi-angs[i-1])/(2*(j+1-i)))+(angs[0]+2*np.pi-angs[i-1])/(2*(j+1-i)):
-##     #                  print "angles we interpolate at ",ang, "inserting"
-##                        pos.append([lpos[0](ang),lpos[1](ang)])
-##     #                  print [lpos[0](ang),lpos[1](ang)]
-##                        vel.append([lvel[0](ang),lvel[1](ang)])
-##                        try:
-##                            eps.append((angs[0]+np.pi*2-angs[i-1])*0.5/(j-i+1.))
-##                        except:
-##                            print j
-##                            raise
-##                i = j+2                
-##            else:
-## #              print angs[i], self.position[i]
-##                pos.append(self.position[i])
-##                vel.append(self.velocity[i])
-##                eps.append(self.eps[i])
-##                i += 1
-##        self.position = np.array(pos)
-##        self.velocity = np.array(vel)
-##        self.eps = np.array(eps)
-
-
-##    def interaction(self):
-##        out = []
-##        outvel = []
-##        num_loops = len(self.position)
-##        for loop_index in range(num_loops):
-##            loop = self.position[loop_index]
-##            loopvel = self.velocity[loop_index]
-##            loop_processed = False
-##            if len(loop) > 6:
-##                for element_index in range(1,len(loop)-1,5):
-##                    for other_element_index in range(max(element_index+5,element_index + len(loop)/3,5),min(len(loop)-5+element_index,len(loop))):
-##                        if type(self.position[0][0][0]) != np.float64:
-##                            print "Oh Noes!",element_index, other_element_index,
-##                        try:
-##                            if np.linalg.norm(loop[element_index] - loop[other_element_index]) <min(np.linalg.norm(loop[element_index] - loop[element_index+1]),0.1):
-##                                if np.random.rand() < .005 and not loop_processed:
-##                                    loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
-##                                    loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
-##                                    loop2 = loop[element_index:other_element_index]
-##                                    loopvel2 = loopvel[element_index:other_element_index]
-##                                    out.append(loop1)
-##                                    outvel.append(loopvel1) 
-##                                    out.append(loop2)
-##                                    outvel.append(loopvel2)
-##                                    loop_processed = True
-##                                    print out, outvel,"great!"
-##                        except ValueError:
-##                           # print loop_index, element_index, other_element_index#, loop[element_index]
-##                            raise
-##                        if loop_processed:
-##                            break
-##                    if loop_processed:
-##                        break
-##            if not loop_processed:
-##                out.append(loop)
-##                outvel.append(loopvel)
-##        self.position = np.array(out)
-##        self.velocity = np.array(outvel)
-##        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
-##                            
-##    def fast_interaction(self):
-##        out = []
-##        outvel = []
-##        num_loops = len(self.position)
-##        for loop_index in range(num_loops):
-##            loop = self.position[loop_index]
-##            loopvel = self.velocity[loop_index]
-##            loop_processed = False
-##            if len(loop) > 6:
-##                element_index = np.random.randint(0,len(loop))
-##                for other_element_index in range(max(element_index+5,element_index + len(loop)/3,5),min(len(loop)-5+element_index,len(loop))):
-##                    if type(self.position[0][0][0]) != np.float64:
-##                        print "Oh Noes!",element_index, other_element_index,
-##                    try:
-##                        if np.linalg.norm(loop[element_index] - loop[other_element_index]) <min(np.linalg.norm(loop[element_index] - loop[element_index+1]),0.1):
-##                            if np.random.rand() < .0000002*len(loop)**2 and not loop_processed:
-##                                loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
-##                                loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
-##                                loop2 = loop[element_index:other_element_index]
-##                                loopvel2 = loopvel[element_index:other_element_index]
-##                                out.append(loop1)
-##                                outvel.append(loopvel1) 
-##                                out.append(loop2)
-##                                outvel.append(loopvel2)
-##                                loop_processed = True
-##                                print out, outvel,"great!"
-##                    except ValueError:
-##                       # print loop_index, element_index, other_element_index#, loop[element_index]
-##                        raise
-##                    if loop_processed:
-##                        break
-##            if not loop_processed:
-##                out.append(loop)
-##                outvel.append(loopvel)
-##        self.position = np.array(out)
-##        self.velocity = np.array(outvel)
-##        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
-
-    def faster_interaction(self):
+    def interaction(self): ##a pair of loops interact with likelihood proportional to one over the sqaure of the number of loops
         out = []
-        outvel = []
-        a,b = np.random.randint(self.num_points),np.random.randint(self.num_points)
-        if a < b:
-            element_index,other_element_index = a,b
-        else:
-            element_index,other_element_index = b,a
-        loop_index_1,loop_index_2 = 0,0
-        loop_index_1,loop_index_2 = np.random.randint(len(self.position)),np.random.randint(len(self.position))
+        outvel = []        
+        loop_index_1,loop_index_2 =0,np.random.randint((len(self.position)*(len(self.position)+1))/2)
+        while loop_index_2 > loop_index_1: #select a pair of loops, (1,1) as likely as (1,2)=(2,1)
+            loop_index_1 += 1
+            loop_index_2 -= loop_index_1
         for loop_index,loops in enumerate(self.position):
             loopvels = self.velocity[loop_index]
-            if loop_index != loop_index_1 and loop_index != loop_index_2:
-                out.append(loops)
+            if loop_index != loop_index_1 and loop_index != loop_index_2: #throw all the other loops into the output untouched
+                out.append(loops)  
                 outvel.append(loopvels)
-                #print "added non-interacting loops"
-        if loop_index_1 == loop_index_2:
+        if loop_index_1 == loop_index_2: #loop self-interaction
             loop = self.position[loop_index_1]
             loopvel = self.velocity[loop_index_1]
             loop_processed = False
-            if len(loop) > 6:
-                a = np.random.randint(len(loop))
+            if len(loop) > 6: #short loops don't self-interact
+                a = np.random.randint(len(loop)) 
                 b = np.random.randint(len(loop))
                 if a < b:
-                    element_index,other_element_index = a,b
+                    element_index,other_element_index = a,b #pick two points on the loop to potentially interact
                 else:
                     element_index,other_element_index = b,a
-                if min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
-#                    print "Interaction possible at loop ",loop_index_1," sites ",element_index,other_element_index 
-#                    print np.linalg.norm(loop[element_index] - loop[other_element_index])
-                    if np.linalg.norm(loop[element_index] - loop[other_element_index]) < min(10*np.linalg.norm(loop[element_index] - loop[(element_index+2)%len(loop)]),0.1):
+                if True:#min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
+                    if (min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>6
+                        and np.linalg.norm(loopvel[element_index] - loopvel[other_element_index])*np.random.rand() > 0.5
+                        and np.linalg.norm(loop[element_index] - loop[other_element_index]) < 0.1):
+                        #points must be nearby and moving fast relative to each other in order to interact
                         print "INTERACTION!"
-                        loop1 = np.concatenate((loop[other_element_index:],loop[:element_index]))
-                        loopvel1 = np.concatenate((loopvel[other_element_index:],loopvel[:element_index]))
-                        print "1st loop ok"
-                        loop2 = loop[element_index:other_element_index]
-                        loopvel2 = loopvel[element_index:other_element_index]
-                        print "2ns loop ok"
+                        print "now " + str(len(self.position) + 1) + " loops"
+                        #cut the loop into two, same with the velocity tensor for the loop
+                        loop1,loopvel1 = (np.concatenate((   loop[other_element_index:],   loop[:element_index])),
+                                          np.concatenate((loopvel[other_element_index:],loopvel[:element_index])))
+                        loop2,loopvel2 = (   loop[element_index:other_element_index],
+                                          loopvel[element_index:other_element_index])
                         out.append(loop1)
-                        outvel.append(loopvel1*0.9) #dampen the energy gain    ) 
                         out.append(loop2)
-                        outvel.append(loopvel2*0.9) #dampen the energy gain    )
-                        print "loops added"
+                        outvel.append(loopvel1)
+                        outvel.append(loopvel2)
                         loop_processed = True
-                        if len(loopvel1) + len(loopvel2) != len(loopvel):
-                            raise ValueError("changed number of points in velocity")
-            if not loop_processed:
+            if not loop_processed: #if we didn't cut the loop, add it to the output.
                 out.append(loop)
                 outvel.append(loopvel)
         else: #loops different
-            loop_1 = self.position[loop_index_1]
-            loop_2 = self.position[loop_index_2]
-            loopvel_1 = self.velocity[loop_index_1]
-            loopvel_2 = self.velocity[loop_index_2]
-            element_index_1 = np.random.randint(len(loop_1))
-            element_index_2 = np.random.randint(len(loop_2))
-            try:
-                if np.linalg.norm(loop_1[element_index_1] - loop_2[element_index_2]) < min(10*np.linalg.norm(loop_1[element_index_1] - loop_1[(element_index_1+2)%len(loop_1)]),0.1):
-                    print "INTERACTION!"
-                    loop = np.concatenate((
-                        loop_1[:element_index_1],loop_2[element_index_2:],loop_2[:element_index_2],loop_1[element_index_1:]
-                        ))
-                    loopvel = np.concatenate((
-                        loopvel_1[:element_index_1],loopvel_2[element_index_2:],loopvel_2[:element_index_2],loopvel_1[element_index_1:]
-                        ))
-                    out.append(loop)
-                    outvel.append(loopvel*0.9) #dampen the energy gain  
-                else:
-                    out.append(loop_1)
-                    outvel.append(loopvel_1) 
-                    out.append(loop_2)
-                    outvel.append(loopvel_2)
-            except IndexError:
-                print loop_index_1,element_index_1,len(loop_1),loop_index_2,element_index_2,len(loop_2)
-                raise
-        if len(np.concatenate(np.array(outvel))) != self.num_points:
-            raise ValueError("You changed the number of points some points, loop indices" + str(loop_index_1) + str(loop_index_2))
-        self.position = np.array(out)
+            loop_1,loopvel_1 = self.position[loop_index_1],self.velocity[loop_index_1]
+            loop_2,loopvel_2 = self.position[loop_index_2],self.velocity[loop_index_2]
+            element_index,other_element_index = np.random.randint(len(loop_1)),np.random.randint(len(loop_2))#pick points on each interacting loop
+            if np.linalg.norm(loopvel_1[element_index] - loopvel_2[other_element_index])*np.random.rand() > 0.5 and np.linalg.norm(loop_1[element_index] - loop_2[other_element_index]) < 0.1:
+                #points must be nearby and moving fast relative to each other in order to interact
+                print "INTERACTION!"
+                print "now " + str(len(self.position) - 1) + " loops"
+                #join these loops
+                loop,loopvel = (
+                    np.concatenate((   loop_1[:element_index],   loop_2[other_element_index:],   loop_2[:other_element_index],   loop_1[element_index:])),
+                    np.concatenate((loopvel_1[:element_index],loopvel_2[other_element_index:],loopvel_2[:other_element_index],loopvel_1[element_index:])))
+                out.append(loop)
+                outvel.append(loopvel)  
+            else:   #if the loops didn't merge after all.
+                out.append(loop_1)
+                outvel.append(loopvel_1) 
+                out.append(loop_2)
+                outvel.append(loopvel_2)
+        self.position = np.array(out) #update data
         self.velocity = np.array(outvel)    
-        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])            
+        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])  #update the source circle angle spacing data
                     
 
     def plotter(self):
@@ -355,18 +174,15 @@ class QString:
         time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
         energy_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
         other_text = ax.text(0.02, 0.85, '', transform=ax.transAxes)
-        
+        com_text = ax.text(0.02, 0.80, '', transform=ax.transAxes)        
 
         def init():
             """initialize animation"""
             line.set_data([], [])
             time_text.set_text('')
-            energy_text.set_text('') 
-            return line, time_text, energy_text
-##        def init():    
-##            for line in lines:
-##                line.set_data([], [])
-##            return lines
+            energy_text.set_text('')
+            com_text.set_text('') 
+            return line, time_text, energy_text, com_text
 
         def animate(i):
             """perform animation step"""
@@ -377,9 +193,10 @@ class QString:
             #time_text.set_text('curve = ' + str(string.curvature))
             time_text.set_text('time = ' + str(self.time_elapsed))
             energy_text.set_text('energy = %.3f J' % self.energy())
+            com_text.set_text('COM = ' + str(self.com()))
             other_text.set_text('Loop Count = ' + str(self.position.shape[0]))
 
-            return line,  time_text, energy_text,other_text
+            return line,  time_text, energy_text,other_text,com_text
 
         from time import time
         t0 = time()
@@ -393,8 +210,9 @@ class QString:
 
         plt.show()
 
-##
-##
+###
+        Examples
+###
 poss,vels = (
     np.array([np.array([
         cos(np.arange(0,1,0.0025) * 2 * np.pi),
@@ -411,7 +229,8 @@ pos = 5*np.array([np.array(
         np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))
         ).transpose().dot(np.random.rand(10)/10-.5/10),
      np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()])+poss
-vel = np.array(np.array([np.array(
+vel = np.array(np.
+               array([np.array(
     [np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10),
      np.sin(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()]))
 
@@ -444,4 +263,12 @@ pos = np.array([
     ])
 
 ssttring = QString(init_pos = pos,h=0.01)
+points = 2.0
+poss,vels = (
+    np.array([np.array([
+        cos(np.arange(0,1,1/points) * 2 * np.pi),
+        sin(np.arange(0,1,1/points) * 2 * np.pi)]).transpose()]),
+    2 *np.pi * 0* np.array([np.pi* np.array([-sin(np.arange(0,1,1/points) *  2 * np.pi),
+                cos(np.arange(0,1,1/points) * 2 * np.pi)]).transpose()]))
 
+sting = QString(init_pos = poss, init_vel = vels,h = 0.1)
