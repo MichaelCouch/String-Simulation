@@ -70,9 +70,15 @@ class QString:
 
 
     def integrate(self,initial_position,initial_velocity,velocity,acceleration):
-        new_position = initial_position + self.h * velocity
         new_velocity = initial_velocity + self.h * acceleration
+        new_position = initial_position + self.h * velocity
         return new_position,new_velocity
+
+    def symplectic_integrate(self,initial_position,initial_velocity,velocity,acceleration):
+        new_velocity = initial_velocity + self.h * acceleration
+        new_position = initial_position + self.h * new_velocity
+        return new_position,new_velocity
+
 
 
     def energy(self):
@@ -88,10 +94,10 @@ class QString:
 #        print len(self.position)," loops"
         deriv,secondderiv = self.compute_deriv()
         accE = self.acc(deriv,secondderiv)
-        positionEuler, velocityEuler = self.integrate(self.position,self.velocity,self.velocity,accE)
+        positionEuler, velocityEuler = self.symplectic_integrate(self.position,self.velocity,self.velocity,accE)
         deriv,secondderiv = self.compute_deriv(positions=positionEuler) 
         accH = self.acc(deriv,secondderiv)
-        positionHeun, velocityHeun = self.integrate(self.position,self.velocity,0.5 * (self.velocity + velocityEuler),0.5 *(accE + accH))
+        positionHeun, velocityHeun = self.symplectic_integrate(self.position,self.velocity,0.5 * (self.velocity + velocityEuler),0.5 *(accE + accH))
         self.position,self.velocity = positionHeun,velocityHeun
         err = self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun)
 #        self.position,self.velocity = positionEuler,velocityEuler
@@ -261,7 +267,13 @@ class QString:
     def faster_interaction(self):
         out = []
         outvel = []
-        loop_index_1,loop_index_2 = np.random.randint(0,len(self.position)),np.random.randint(0,len(self.position))
+        a,b = np.random.randint(self.num_points),np.random.randint(self.num_points)
+        if a < b:
+            element_index,other_element_index = a,b
+        else:
+            element_index,other_element_index = b,a
+        loop_index_1,loop_index_2 = 0,0
+        loop_index_1,loop_index_2 = np.random.randint(len(self.position)),np.random.randint(len(self.position))
         for loop_index,loops in enumerate(self.position):
             loopvels = self.velocity[loop_index]
             if loop_index != loop_index_1 and loop_index != loop_index_2:
