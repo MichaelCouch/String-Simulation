@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.interpolate
 import matplotlib.animation as animation
+import time
 
 
 num_steps  = 1000 # number of time intervals
@@ -34,6 +35,9 @@ class QString:
         self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
+
+    def re_init(self):
+        self.__init__(init_pos = self.initial_position, init_vel = self.initial_velocity)
    
     def rotate(self,lists = None,n=1):
         if lists is None:
@@ -74,32 +78,38 @@ class QString:
     def energy(self):
         vs,lengths,poss = self.normsqr(self.velocity),self.normsqr(self.compute_deriv()[0]),self.normsqr(self.position)
         eps = np.concatenate(self.eps)
-        return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + (self.k *eps.transpose().dot(lengths)).sum()+ (0.1 *eps.transpose().dot(poss)).sum())
+        return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + 0.5*(self.k *eps.transpose().dot(lengths)).sum()+ 0.5*(0.1 *eps.transpose().dot(poss)).sum())
 
 
     def compute_state_magnitude(self,pos,vel):
-        return (max(self.m /self.k * self.normsqr(self,vel) + self.normsqr(pos)))**(0.5)
+        return (max(0.1*self.m /self.k * self.normsqr(vel) + self.normsqr(pos)))**(0.5)
         
     def increment(self):
 #        print len(self.position)," loops"
         deriv,secondderiv = self.compute_deriv()
         accE = self.acc(deriv,secondderiv)
         positionEuler, velocityEuler = self.integrate(self.position,self.velocity,self.velocity,accE)
-##        deriv,secondderiv = self.compute_deriv(positions=positionEuler) 
-##        accH = self.acc(deriv,secondderiv)
-##        positionHeun, velocityHeun = self.integrate(self.position,self.velocity,0.5 * (self.velocity + velocityEuler),0.5 *(accE + accH))
-##        self.position,self.velocity = positionHeun,velocityHeun
-        self.position,self.velocity = positionEuler,velocityEuler
-        self.time_elapsed += self.h
- #       if np.random.rand()/self.num_points**2 < .00005:
- #           self.faster_interaction()
+        deriv,secondderiv = self.compute_deriv(positions=positionEuler) 
+        accH = self.acc(deriv,secondderiv)
+        positionHeun, velocityHeun = self.integrate(self.position,self.velocity,0.5 * (self.velocity + velocityEuler),0.5 *(accE + accH))
+        self.position,self.velocity = positionHeun,velocityHeun
+        err = self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun)
+#        self.position,self.velocity = positionEuler,velocityEuler
+        h_old = self.h
+        self.h *= np.sqrt(0.01/err)
+        print round(np.log10(self.h))
+        if np.random.rand()/self.num_points**2 < .00005:
+            self.faster_interaction()
 ####        self.accel = accH
 ###     if self.max_move()> .01:
 ####            self.h = 0.5 * h
 ####            return self.position , self.velocity
 ####        if self.max_move()< .003:
 ####            self.h = 2 * h
-
+        self.time_elapsed += h_old
+        #time.sleep(10*self.h)
+        if self.time_elapsed > 10:
+            self.re_init()
         return self.position , self.velocity
 
 
@@ -363,7 +373,7 @@ class QString:
         t0 = time()
         animate(0)
         t1 = time()
-        interval = (100 * self.h - (t1 - t0))
+        interval =(100 * self.h - (t1 - t0))
         print interval
 
         ani = animation.FuncAnimation(fig, animate, frames=300,
