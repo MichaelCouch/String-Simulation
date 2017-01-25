@@ -60,15 +60,17 @@ class QString:
         return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)), #first derivative
                 1/(eps**2) * ( (yplus - y) - (y - yminus)) ) #second
    
-    def acc(self,deriv,secondderiv,static_oscillator_parameter = [0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
+    def acc(self,deriv,secondderiv,static_oscillator_parameter = [0.00,0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
         free = self.k / self.m * secondderiv
         #constraint = - np.array(
         #    map(lambda a,b : map(lambda c,d: c*d   ,a,b),
         #        np.array(np.array([np.linalg.norm(vel,axis =1)**2 for vel in self.velocity])
         #                - self.k/self.m*np.array([np.linalg.norm(der,axis =1)**2 for der in deriv])),
         #        self.position)
-        #)   
-        return  free #+ 0*constraint #[pos.dot([[static_oscillator_parameter[0],0],[0,static_oscillator_parameter[1]]]) for pos in self.position] - drag_coefficient*self.velocity
+        #)
+        #bowl = np.array([np.array([[1,0,0]] * len(loop)) for loop in self.position])*10*self.h
+        poss = self.position #- [  [[self.h,0,0]] * len(loop) for loop in self.position]
+        return  free  - [pos.dot([[static_oscillator_parameter[0],0,0],[0,static_oscillator_parameter[1],0],[0,0,static_oscillator_parameter[2]]]) for pos in poss] - drag_coefficient*self.velocity #+ 0*constraint #
     
     def integrate(self,initial_position,initial_velocity,velocity,acceleration): #an integration step
         new_velocity = initial_velocity + self.h * acceleration
@@ -89,6 +91,11 @@ class QString:
         com = (np.concatenate(self.position).sum(axis = 0)/self.num_points)
         return com
 
+    def vocom(self): #the velocity of the  centre of mass of the system. Not conserved unless the exterior potential is zero
+        vocom = (np.concatenate(self.velocity).sum(axis = 0)/self.num_points)
+        return vocom
+
+
     def compute_state_magnitude(self,pos,vel): #A measure of the size of a state, in length units. The intention is to use this for adaptive step sizes
         return (max(self.m /self.k * self.normsqr(vel) + self.normsqr(pos)))**(0.5)
         
@@ -103,11 +110,11 @@ class QString:
 #        h_old = self.h
         self.position,self.velocity = positionHeun,velocityHeun
         if np.random.rand()/self.num_points**2 < .0005: #allow self interactions randomly, at most one per time step.
-            self.interaction()
+            self.interaction(interaction_distance = 0.1,interaction_velocity=0.3)
 #        return self.position , self.velocity
 
 
-    def interaction(self): ##a pair of loops interact with likelihood proportional to one over the sqaure of the number of loops
+    def interaction(self,interaction_distance = 0.1,interaction_velocity = 0.5): ##a pair of loops interact with likelihood proportional to one over the sqaure of the number of loops
         out = []
         outvel = []        
         loop_index_1,loop_index_2 =0,np.random.randint((len(self.position)*(len(self.position)+1))/2)
@@ -132,8 +139,8 @@ class QString:
                     element_index,other_element_index = b,a
                 if True:#min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
                     if (min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>6
-                        and np.linalg.norm(loopvel[element_index] - loopvel[other_element_index])*np.random.rand() > 0.5
-                        and np.linalg.norm(loop[element_index] - loop[other_element_index]) < 0.1):
+                        and np.linalg.norm(loopvel[element_index] - loopvel[other_element_index])*np.random.rand() > interaction_velocity
+                        and np.linalg.norm(loop[element_index] - loop[other_element_index]) < interaction_distance):
                         #points must be nearby and moving fast relative to each other in order to interact
                         print "INTERACTION!"
                         print "now " + str(len(self.position) + 1) + " loops"
@@ -154,7 +161,8 @@ class QString:
             loop_1,loopvel_1 = self.position[loop_index_1],self.velocity[loop_index_1]
             loop_2,loopvel_2 = self.position[loop_index_2],self.velocity[loop_index_2]
             element_index,other_element_index = np.random.randint(len(loop_1)),np.random.randint(len(loop_2))#pick points on each interacting loop
-            if np.linalg.norm(loopvel_1[element_index] - loopvel_2[other_element_index])*np.random.rand() > 0.5 and np.linalg.norm(loop_1[element_index] - loop_2[other_element_index]) < 0.1:
+            if (np.linalg.norm(loopvel_1[element_index] - loopvel_2[other_element_index])*np.random.rand() > interaction_velocity
+                and np.linalg.norm(loop_1[element_index] - loop_2[other_element_index]) < interaction_distance):
                 #points must be nearby and moving fast relative to each other in order to interact
                 print "INTERACTION!"
                 print "now " + str(len(self.position) - 1) + " loops"
@@ -220,80 +228,47 @@ class QString:
         plt.show()
 
     def ThreeDplotter(self):
-#        fig = plt.figure()
-#        ax = p3.Axes3D(fig)
-#        x,y,z = (np.concatenate(self.position)).transpose()
-#        line = ax.plot(x,y,z,'bo',lw=2)
-##
-##        def init():
-##            """initialize animation"""
-##            line = ax.plot([x],[y],[z],'bo',lw=2)
-##            return line #time_text, energy_text, com_text
-##
-##        def animate(i):
-##            """perform animation step"""
-##            self.increment()
-##            x,y,z = (np.concatenate(self.position)).transpose()
-##            line.set_data([x,y])
-##            line.set_3d_properties(z)
-##            return line,#  time_text, energy_text,other_text,com_text
-##
-##        from time import time
-##        t0 = time()
-##        animate(0)
-##        t1 = time()
-##        interval =(100 * self.h - (t1 - t0))
-##
-##        ani = animation.FuncAnimation(fig, animate, frames=300,
-##                                      interval=interval, blit=True, init_func=init)
 
-
-
-
-##        def Gen_RandLine(length, dims=2):
-##            """
-##            Create a line using a random walk algorithm
-##
-##            length is the number of points for the line.
-##            dims is the number of dimensions the line has.
-##            """
-##            lineData = np.empty((dims, length))
-##            lineData[:, 0] = np.random.rand(dims)
-##            for index in range(1, length):
-##                step = ((np.random.rand(dims) - 0.5) * 0.1)
-##                lineData[:, index] = lineData[:, index - 1] + step
-##
-##            return np.concatenate(self.position).transpose()
-
-
-        def update_lines(num, lines):#dataLines, lines):
+        def update_lines(num):
             for i in range(10):
                 self.increment()
-            data = [np.concatenate(self.position).transpose()]
-#            for line, data in zip(lines, np.concatenate(self.position).transpose()):
-#                 #NOTE: there is no .set_data() for 3 dim data...
-#                line.set_data(data[0],data[1])
-#                line.set_3d_properties(data[2])
-#                print line, data
-#            print "update!", self.energy()
+            data = np.concatenate(self.position).transpose()
+            for i in range(1,50):
+                self.f[50-i] = self.f[49-i]
+            self.f[0] = ax.plot(data[0], data[1], data[2], 'o',color=(1, 0.75+ 0.2*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0.5 + 0.5* np.sin(2 * np.pi * num/100)) , lw=2)[0]
+            if self.f[49]:
+                (self.f[49]).remove()
             xx,yy,zz = self.com()
             ax.set_xlim3d([-2.0+xx,2.0 + xx])
             ax.set_ylim3d([-2.0+yy, 2.0+yy])
             ax.set_zlim3d([-2.0+zz, 2.0+zz])
-            lines = [ax.plot(dat[0], dat[1], dat[2], 'o',color=(1, 0.5+ 0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0* np.sin(2 * np.pi * num/100)**2) , lw=2)[0] for dat in data]
-            return lines
+            ax.set_xlim3d([-2.0+ 10*num*self.h,2.0 + 10*num*self.h])
+            ax.set_ylim3d([-2.0, 2.0])
+            ax.set_zlim3d([-2.0, 2.0])
 
+                        #    ax.collections.remove(self.frame)
+            #self.frame = ax.plot(data[0], data[1], data[2], '.',color=(1, 0.5+ 0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0* np.sin(2 * np.pi * num/100)**2) , lw=2)
+            return self.f
         # Attaching 3D axis to the figure
         fig = plt.figure()
         ax = p3.Axes3D(fig)
 
-        # Fifty lines of random 3-D lines
-        data = [np.concatenate(self.position).transpose()]
-        # NOTE: Can't pass empty arrays into 3d version of plot()
-        lines = [ax.plot(dat[0], dat[1], dat[2], 'go', lw=2)[0] for dat in data]
 
+        # Fifty lines of random 3-D lines
+        data = np.concatenate(self.position).transpose()
+        # NOTE: Can't pass empty arrays into 3d version of plot()
+        self.f = [ax.plot(data[0], data[1], data[2], 'go', lw=2)[0]] + [None for i in range(49)]
+##        self.ff= None
+##        self.fff= None
+##        self.ffff= None
+##        self.fffff= None
+##        self.ffffff= None
+##        self.fffffff= None
+##        self.ffffffff= None
+##        self.fffffffff= None
+##        self.ffffffffff= None
         # Setting the axes properties
-        ax.set_xlim3d([-1.0,100.0])
+        ax.set_xlim3d([-2.0,2.0])
         ax.set_xlabel('X')
 
         ax.set_ylim3d([-2.0, 2.0])
@@ -305,7 +280,7 @@ class QString:
         ax.set_title('3D Test')
 
         # Creating the Animation object
-        line_ani = animation.FuncAnimation(fig, update_lines, range(100), fargs=(lines),
+        line_ani = animation.FuncAnimation(fig, update_lines, range(10000),
                                            interval=1, blit=False)
 
         plt.show()
@@ -382,27 +357,28 @@ on_circle = np.array([[ np.cos(theta),np.sin(theta)]]).transpose((0,2,1))
 string_on_circle = QString(init_pos = on_circle)
 
 components = 3
+points = 400.
 
 pos = (
     5*np.array([np.array(
-    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
+    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
     +5*np.array([np.array(
-    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
+    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
     )
 
 
 vel = (np.array(np.array([np.array(
-    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components)+1,
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))+
+    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)+0.95,
+     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))+
     np.array(np.array([np.array(
-    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.01)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))
+    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))
     )
 
 sting = QString(init_pos = pos, init_vel = vel,h = 0.01,k=0.03)
