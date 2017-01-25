@@ -235,16 +235,16 @@ class QString:
             data = np.concatenate(self.position).transpose()
             for i in range(1,50):
                 self.f[50-i] = self.f[49-i]
-            self.f[0] = ax.plot(data[0], data[1], data[2], 'o',color=(1, 0.75+ 0.2*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0.5 + 0.5* np.sin(2 * np.pi * num/100)) , lw=2)[0]
+            self.f[0] = ax.plot(data[0], data[1], data[2], '.',color=(1, 0.75+ 0.2*np.sin(2 * np.pi * num/100 + 2*np.pi/3), 0) , lw=2)[0]
             if self.f[49]:
                 (self.f[49]).remove()
             xx,yy,zz = self.com()
             ax.set_xlim3d([-2.0+xx,2.0 + xx])
             ax.set_ylim3d([-2.0+yy, 2.0+yy])
             ax.set_zlim3d([-2.0+zz, 2.0+zz])
-            ax.set_xlim3d([-2.0+ 10*num*self.h,2.0 + 10*num*self.h])
-            ax.set_ylim3d([-2.0, 2.0])
-            ax.set_zlim3d([-2.0, 2.0])
+#            ax.set_xlim3d([-2.0+ 10*num*self.h,2.0 + 10*num*self.h])
+#            ax.set_ylim3d([-2.0, 2.0])
+#            ax.set_zlim3d([-2.0, 2.0])
 
                         #    ax.collections.remove(self.frame)
             #self.frame = ax.plot(data[0], data[1], data[2], '.',color=(1, 0.5+ 0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0* np.sin(2 * np.pi * num/100)**2) , lw=2)
@@ -258,15 +258,7 @@ class QString:
         data = np.concatenate(self.position).transpose()
         # NOTE: Can't pass empty arrays into 3d version of plot()
         self.f = [ax.plot(data[0], data[1], data[2], 'go', lw=2)[0]] + [None for i in range(49)]
-##        self.ff= None
-##        self.fff= None
-##        self.ffff= None
-##        self.fffff= None
-##        self.ffffff= None
-##        self.fffffff= None
-##        self.ffffffff= None
-##        self.fffffffff= None
-##        self.ffffffffff= None
+
         # Setting the axes properties
         ax.set_xlim3d([-2.0,2.0])
         ax.set_xlabel('X')
@@ -372,7 +364,7 @@ pos = (
 
 
 vel = (np.array(np.array([np.array(
-    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)+0.95,
+    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)+1,
      np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
      np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))+
     np.array(np.array([np.array(
