@@ -62,15 +62,15 @@ class QString:
    
     def acc(self,deriv,secondderiv,static_oscillator_parameter = [0.00,0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
         free = self.k / self.m * secondderiv
-        #constraint = - np.array(
-        #    map(lambda a,b : map(lambda c,d: c*d   ,a,b),
-        #        np.array(np.array([np.linalg.norm(vel,axis =1)**2 for vel in self.velocity])
-        #                - self.k/self.m*np.array([np.linalg.norm(der,axis =1)**2 for der in deriv])),
-        #        self.position)
-        #)
+        constraint = - np.array(
+            map(lambda a,b : map(lambda c,d: c*d   ,a,b),
+               np.array(np.array([np.linalg.norm(vel,axis =1)**2 for vel in self.velocity])
+                        - self.k/self.m*np.array([np.linalg.norm(der,axis =1)**2 for der in deriv])),
+                self.position)
+        )
         #bowl = np.array([np.array([[1,0,0]] * len(loop)) for loop in self.position])*10*self.h
         poss = self.position #- [  [[self.h,0,0]] * len(loop) for loop in self.position]
-        return  free  - [pos.dot([[static_oscillator_parameter[0],0,0],[0,static_oscillator_parameter[1],0],[0,0,static_oscillator_parameter[2]]]) for pos in poss] - drag_coefficient*self.velocity #+ 0*constraint #
+        return  free # + constraint #- [pos.dot([[static_oscillator_parameter[0],0,0],[0,static_oscillator_parameter[1],0],[0,0,static_oscillator_parameter[2]]]) for pos in poss] - drag_coefficient*self.velocity #+ 0*constraint #
     
     def integrate(self,initial_position,initial_velocity,velocity,acceleration): #an integration step
         new_velocity = initial_velocity + self.h * acceleration
@@ -109,8 +109,8 @@ class QString:
 #        err = min(max(self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun),0.001),0.1) #difference between Heun and Euler integrations estimate the local truncation error to O(t^3)
 #        h_old = self.h
         self.position,self.velocity = positionHeun,velocityHeun
-        if np.random.rand()/self.num_points**2 < .0005: #allow self interactions randomly, at most one per time step.
-            self.interaction(interaction_distance = 0.1,interaction_velocity=0.3)
+        #if np.random.rand()/self.num_points**2 < .0005: #allow self interactions randomly, at most one per time step.
+        #    self.interaction(interaction_distance = 0.1,interaction_velocity=0.3)
 #        return self.position , self.velocity
 
 
@@ -233,11 +233,11 @@ class QString:
             for i in range(10):
                 self.increment()
             data = np.concatenate(self.position).transpose()
-            for i in range(1,50):
-                self.f[50-i] = self.f[49-i]
-            self.f[0] = ax.plot(data[0], data[1], data[2], '.',color=(1, 0.75+ 0.2*np.sin(2 * np.pi * num/100 + 2*np.pi/3), 0) , lw=2)[0]
-            if self.f[49]:
-                (self.f[49]).remove()
+            for i in range(1,30):
+                self.f[30-i] = self.f[29-i]
+            self.f[0] = ax.plot(data[0], data[1], data[2], '.',color=(0.5+0.5*np.sin(2 * np.pi * num/100),0.5+0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3), 0.5+0.5*np.sin(2 * np.pi * num/100 - 2*np.pi/3)) , lw=2)[0]
+            if self.f[29]:
+                (self.f[29]).remove()
             xx,yy,zz = self.com()
             ax.set_xlim3d([-2.0+xx,2.0 + xx])
             ax.set_ylim3d([-2.0+yy, 2.0+yy])
@@ -375,3 +375,13 @@ vel = (np.array(np.array([np.array(
 
 sting = QString(init_pos = pos, init_vel = vel,h = 0.01,k=0.03)
 
+theta = 10*np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3) +2*np.pi*np.arange(0,1,0.0025)
+phi = 10*np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3) +2*np.pi*np.arange(0,1,0.0025)
+
+pos = np.array([np.array([
+    np.sin(theta)*np.cos(phi),
+    np.sin(theta)*np.sin(phi),
+    np.cos(theta)]).transpose()])
+sttting = QString(init_pos = pos, h = 0.01,k=0.03)
+sting.ThreeDplotter()
+    
