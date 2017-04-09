@@ -6,13 +6,53 @@ import matplotlib.animation as animation
 import time
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.axes3d as p3
+from multiprocessing import Queue, Process
+import multiprocessing
+
+def worker(indices,positions,velocities, positions2,vel,out_q,m,k,same):
+    #print "working"
+    imax = 0
+    jmax = 0
+    emax = -10**10
+    n = len(positions2)
+    for i in indices:
+        #print "working row ", i 
+        selfpos = positions[i]
+        selfvel = velocities[i]
+        for j,pos in enumerate(positions2):
+            if  (not same) or (j not in [(i-2) % n,(i-1) % n,i,(i+1) % n,(i+2) % n]):
+      #      print selfpos, selfvel,vel[j],pos[j]
+                e = m* np.linalg.norm(selfvel - vel[j])**2 - k * np.linalg.norm(selfpos - pos)**2 
+                if e > emax:
+                    imax,jmax,emax = i,j,e
+    #print imax,jmax,emax
+    out_q.put((imax,jmax,emax))
+#def worker(indices,out_q):
+##    print "working"
+##    imax = 0
+##    jmax = 0
+##    emax = -10**10
+##    n = len(positions2)
+##    for i in indices:
+##        print "working row ", i 
+##        selfpos = positions[i]
+##        selfvel = velocities[i]
+##        for j,pos in enumerate(positions2):
+##            if  (not same) or (j not in [(i-2) % n,(i-1) % n,i,(i+1) % n,(i+2) % n]):
+##      #      print selfpos, selfvel,vel[j],pos[j]
+##                e = m* np.linalg.norm(selfvel - vel[j])**2 - k * np.linalg.norm(selfpos - pos)**2 
+##                if e > emax:
+##                    imax,jmax,emax = i,j,e
+##    print imax,jmax,emax
+#    out_q.put((1,1,1))
+#    return
 
 
 
-class QString:
+class Loop:
     """
-    A class representing a number of strings subject to a spring-like potential as it evolves in time. Strings interact, merging and splitting stochastically where they approach one another. At each time step, the string may be considered to be a section of the bundle
-    sigma*(T R^2) for a smooth map sigma:(S^1)^n -> R^2, where n is the number of strings at that time.
+    A class representing a single closed string subject to a spring-like potential as it evolves in time. Considered to be a section of the bundle
+    sigma*(T R^2) for a smooth map sigma:S^1 -> R^3.
     """
     def __init__(self,
                  h=0.01,    # the integration time step
@@ -30,52 +70,44 @@ class QString:
         self.h = h 
         #Next, some sanity checks on input.
         if self.position is None:
-            self.position = np.array([np.zeros(pos.shape)*2.*np.pi / len(pos) for pos in self.velocity])
+            self.position = np.zeros(len(self.velocity))
         if self.velocity is None:
-            self.velocity = np.array([np.zeros(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
-        self.num_points = len(np.concatenate(self.position))
-        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])
+            self.velocity = np.zeros(len(self.position))
+        self.num_points = len(self.position)
         if self.position.shape != self.velocity.shape:
             raise np.linalg.LinAlgError("mismatched position and velocity input shape")
 
     def re_init(self): #reset the string to initial configuration
         self.__init__(init_pos = self.initial_position, init_vel = self.initial_velocity)
    
-    def rotate(self,lists = None,n=1): #rotate the source circles by n elements.
-        if lists is None:
-            lists = self.position
-        return np.array([np.concatenate((pos[n:],pos[:n])) for pos in lists])
+    def rotate(self,li = None,n=1): #rotate the source circles by n elements.
+        if li is None:
+            li = self.position
+        return np.array(np.concatenate([li[n:],li[:n]]))
 
-    def normsqr(self,list_of_list_of_vectors): #compute the norm square of each vector in a list of list of vectors, and collect them in a single list.
-        return np.concatenate(np.array([np.linalg.norm(list_of_vectors,axis = 1)**2 for list_of_vectors in list_of_list_of_vectors]))
-                
-    def compute_deriv(self,positions=None,epsilons=None): #compute the first and second derivatives of the position of a 
-        if positions is None: #hack so default values can be attributes of self
-            positions = self.position
-        if epsilons is None:
-            epsilons = self.eps
-        yminus=self.rotate(n=-1, lists = positions)  
-        y, eps = positions, epsilons
-        yplus =self.rotate(n=1,  lists = positions)
-        return ( 1/(2 * eps) * ((yplus - y) + (y - yminus)), #first derivative
-                1/(eps**2) * ( (yplus - y) - (y - yminus)) ) #second
+    def com(self):
+        return self.position.mean(axis = 0)
+
+    def normsqr(self,list_of_vectors): #compute the norm square of each vector in a list of list of vectors, and collect them in a single list.
+        return np.linalg.norm(list_of_vectors,axis = 1)**2
    
-    def acc(self,deriv,secondderiv,static_oscillator_parameter = [0.00,0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
-        free = self.k / self.m * secondderiv
-        constraint = - np.array(
-            map(lambda a,b : map(lambda c,d: c*d   ,a,b),
-               np.array(np.array([np.linalg.norm(vel,axis =1)**2 for vel in self.velocity])
-                        - self.k/self.m*np.array([np.linalg.norm(der,axis =1)**2 for der in deriv])),
-                self.position)
-        )
-        #bowl = np.array([np.array([[1,0,0]] * len(loop)) for loop in self.position])*10*self.h
-        poss = self.position #- [  [[self.h,0,0]] * len(loop) for loop in self.position]
-        return  free # + constraint #- [pos.dot([[static_oscillator_parameter[0],0,0],[0,static_oscillator_parameter[1],0],[0,0,static_oscillator_parameter[2]]]) for pos in poss] - drag_coefficient*self.velocity #+ 0*constraint #
+##    def acc_old(self,deriv,secondderiv,static_oscillator_parameter = [0.00,0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?)
+##        free = self.k / self.m * secondderiv
+##        #constraint = - np.array(
+##        #    map(lambda a,b : map(lambda c,d: c*d   ,a,b),
+##        #       np.array(np.array([np.linalg.norm(vel,axis =1)**2 for vel in self.velocity])
+##        #                - self.k/self.m*np.array([np.linalg.norm(der,axis =1)**2 for der in deriv])),
+##        #        self.position)
+##        #)
+##        bowl = np.array([[1,0,0]] * len(self.position))*self.h
+##        poss = self.position #- [  [[self.h,0,0]] * len(loop) for loop in self.position]
+##        return  free - 0*self.velocity#+ [pos.dot([[static_oscillator_parameter[0],0,0],[0,static_oscillator_parameter[1],0],[0,0,static_oscillator_parameter[2]]]) for pos in poss] - drag_coefficient*self.velocity #+ 0*constraint #
     
-    def integrate(self,initial_position,initial_velocity,velocity,acceleration): #an integration step
-        new_velocity = initial_velocity + self.h * acceleration
-        new_position = initial_position + self.h * velocity
-        return new_position,new_velocity
+    def acc(self,positions = None,static_oscillator_parameter = [0.00,0.03,0.07],drag_coefficient=0): #compute the acceleration of a point in the string subject to self forces, in a fixed exterior potential subect to drag (sea of virtual particle?) 
+        if positions is None:
+            positions = self.position
+        free = self.k / self.m *( - 2 * self.position + self.rotate(li = positions, n=1) + self.rotate(li = positions, n=-1))
+        return  free - drag_coefficient*self.velocity
 
     def symplectic_integrate(self,initial_position,initial_velocity,acceleration): # a symplectic integration step
         new_velocity = initial_velocity + self.h * acceleration
@@ -83,105 +115,147 @@ class QString:
         return new_position,new_velocity
 
     def energy(self): #the kinetic, self-potential and fixed external potential of the string. Conserved in physics
-        vs,lengths,poss = self.normsqr(self.velocity),self.normsqr(self.compute_deriv()[0]),self.normsqr(self.position)
-        eps = np.concatenate(self.eps)
-        return 2 * np.pi *( (0.5 * self.m *eps.transpose().dot(vs)).sum() + 0.5*(self.k *eps.transpose().dot(lengths)).sum()+ 0.5*(0.1 *eps.transpose().dot(poss)).sum())
+        return self.kinetic_energy() + self.potential_energy()
 
-    def com(self): #the centre of mass of the system. Not conserved unless the exterior potential is zero
-        com = (np.concatenate(self.position).sum(axis = 0)/self.num_points)
-        return com
+    def kinetic_energy(self): #the kinetic, self-potential and fixed external potential of the string. Conserved in physics
+        vs = self.normsqr(self.velocity)
+        return 0.5 * self.m *vs.sum()
 
-    def vocom(self): #the velocity of the  centre of mass of the system. Not conserved unless the exterior potential is zero
-        vocom = (np.concatenate(self.velocity).sum(axis = 0)/self.num_points)
-        return vocom
+    def potential_energy(self): #the kinetic, self-potential and fixed external potential of the string. Conserved in physics
+        lengths= self.normsqr(self.position - self.rotate(n=1))
+        return  0.5*self.k *lengths.sum()
 
-
-    def compute_state_magnitude(self,pos,vel): #A measure of the size of a state, in length units. The intention is to use this for adaptive step sizes
-        return (max(self.m /self.k * self.normsqr(vel) + self.normsqr(pos)))**(0.5)
-        
-    def increment(self): #A time step using symplectic Heun's method
-        deriv,secondderiv = self.compute_deriv(positions = self.position)
-        accE = self.acc(deriv,secondderiv)
+      
+    def increment(self,drag): #A time step using symplectic Heun's method
+        accE = self.acc(drag_coefficient=drag)
         positionEuler, velocityEuler = self.symplectic_integrate(self.position,self.velocity,accE) #Initial Euler step
-        deriv,secondderiv = self.compute_deriv(positions=positionEuler) 
-        accH = self.acc(deriv,secondderiv)
+        accH = self.acc(positions = positionEuler,drag_coefficient=0.1)
         positionHeun, velocityHeun = self.symplectic_integrate(self.position,self.velocity,0.5 *(accE + accH)) #Heun's step
 #        err = min(max(self.compute_state_magnitude(positionHeun - positionEuler,velocityEuler-velocityHeun),0.001),0.1) #difference between Heun and Euler integrations estimate the local truncation error to O(t^3)
 #        h_old = self.h
         self.position,self.velocity = positionHeun,velocityHeun
-        #if np.random.rand()/self.num_points**2 < .0005: #allow self interactions randomly, at most one per time step.
-        #    self.interaction(interaction_distance = 0.1,interaction_velocity=0.3)
-#        return self.position , self.velocity
+
+    def slicetest(self,string2):
+        rowmax,colmax,energymax = 0,0,-10**10
+        for i, row in enumerate(self.position):
+            for j,col in enumerate(string2.position):
+                e = self.m* np.linalg.norm(self.velocity[i] - string2.velocity[j])**2 - self.k * np.linalg.norm(row - col)**2
+                if e > energymax:
+                    rowmax,colmax,energymax = i,j,e 
+        test = (np.random.rand() < 2 / np.pi * np.arctan(energymax/100))
+        if string2 == self:
+            rowmax,colmax = sorted([rowmax,colmax])
+        return test,rowmax,colmax
 
 
-    def interaction(self,interaction_distance = 0.1,interaction_velocity = 0.5): ##a pair of loops interact with likelihood proportional to one over the sqaure of the number of loops
-        out = []
-        outvel = []        
-        loop_index_1,loop_index_2 =0,np.random.randint((len(self.position)*(len(self.position)+1))/2)
-        while loop_index_2 > loop_index_1: #select a pair of loops, (1,1) as likely as (1,2)=(2,1)
-            loop_index_1 += 1
-            loop_index_2 -= loop_index_1
-        for loop_index,loops in enumerate(self.position):
-            loopvels = self.velocity[loop_index]
-            if loop_index != loop_index_1 and loop_index != loop_index_2: #throw all the other loops into the output untouched
-                out.append(loops)  
-                outvel.append(loopvels)
-        if loop_index_1 == loop_index_2: #loop self-interaction
-            loop = self.position[loop_index_1]
-            loopvel = self.velocity[loop_index_1]
-            loop_processed = False
-            if len(loop) > 6: #short loops don't self-interact
-                a = np.random.randint(len(loop)) 
-                b = np.random.randint(len(loop))
-                if a < b:
-                    element_index,other_element_index = a,b #pick two points on the loop to potentially interact
-                else:
-                    element_index,other_element_index = b,a
-                if True:#min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>max(5,len(loop)/3):#something just to make the string kinda long and to prevent too-easy self-interaction:
-                    if (min(abs(other_element_index-element_index),abs(other_element_index-len(loop)-element_index))>6
-                        and np.linalg.norm(loopvel[element_index] - loopvel[other_element_index])*np.random.rand() > interaction_velocity
-                        and np.linalg.norm(loop[element_index] - loop[other_element_index]) < interaction_distance):
-                        #points must be nearby and moving fast relative to each other in order to interact
-                        print "INTERACTION!"
-                        print "now " + str(len(self.position) + 1) + " loops"
-                        #cut the loop into two, same with the velocity tensor for the loop
-                        loop1,loopvel1 = (np.concatenate((   loop[other_element_index:],   loop[:element_index])),
-                                          np.concatenate((loopvel[other_element_index:],loopvel[:element_index])))
-                        loop2,loopvel2 = (   loop[element_index:other_element_index],
-                                          loopvel[element_index:other_element_index])
-                        out.append(loop1)
-                        out.append(loop2)
-                        outvel.append(loopvel1)
-                        outvel.append(loopvel2)
-                        loop_processed = True
-            if not loop_processed: #if we didn't cut the loop, add it to the output.
-                out.append(loop)
-                outvel.append(loopvel)
-        else: #loops different
-            loop_1,loopvel_1 = self.position[loop_index_1],self.velocity[loop_index_1]
-            loop_2,loopvel_2 = self.position[loop_index_2],self.velocity[loop_index_2]
-            element_index,other_element_index = np.random.randint(len(loop_1)),np.random.randint(len(loop_2))#pick points on each interacting loop
-            if (np.linalg.norm(loopvel_1[element_index] - loopvel_2[other_element_index])*np.random.rand() > interaction_velocity
-                and np.linalg.norm(loop_1[element_index] - loop_2[other_element_index]) < interaction_distance):
-                #points must be nearby and moving fast relative to each other in order to interact
-                print "INTERACTION!"
-                print "now " + str(len(self.position) - 1) + " loops"
-                #join these loops
-                loop,loopvel = (
-                    np.concatenate((   loop_1[:element_index],   loop_2[other_element_index:],   loop_2[:other_element_index],   loop_1[element_index:])),
-                    np.concatenate((loopvel_1[:element_index],loopvel_2[other_element_index:],loopvel_2[:other_element_index],loopvel_1[element_index:])))
-                out.append(loop)
-                outvel.append(loopvel)  
-            else:   #if the loops didn't merge after all.
-                out.append(loop_1)
-                outvel.append(loopvel_1) 
-                out.append(loop_2)
-                outvel.append(loopvel_2)
-        self.position = np.array(out) #update data
-        self.velocity = np.array(outvel)    
-        self.eps = np.array([np.ones(pos.shape)*2.*np.pi / len(pos) for pos in self.position])  #update the source circle angle spacing data
+    def multislicetest(self,string2):
+        jobs = []
+        q = multiprocessing.Queue()
+        posses = self.position
+        velles = self.velocity
+        posses2 = string2.position
+        velles2 = string2.velocity
+        n = len(self.position)
+        list_of_groups_of_indices = [range(0,len(self.position))]
+        for indices in list_of_groups_of_indices:
+            p = Process(target=worker,args=(indices,posses, velles,posses2, velles2, q,self.m,self.k,self==string2,))
+            jobs.append(p)
+            p.start()
+        tab = []
+
+        for j in jobs:
+            j.join()
+            
+        for i in range(len(jobs)):
+            tab.append(q.get())
+
+        rowmax,colmax,energymax = max(tab,key = lambda a: a[2])
+        test = (np.random.rand() < 2 / np.pi * np.arctan(energymax/10))
+        if string2 == self:
+            rowmax,colmax = sorted([rowmax,colmax])
+        return test,rowmax,colmax
+        
+
+
+class StringSystem:
+    def __init__(self,strings,h=0.01):
+        self.strings = strings
+        self.intialstrings = strings
+        self.h = h
+        for string in self.strings:
+            string.h = h #spring constant per unit angle of the string
+        self.init_energy = self.energy()
+
+    def re_init(self): #reset the string to initial configuration
+        self.__init__(initialsstrings)
+
+    def remove(self,string):
+        self.strings.remove(string)
+   
+    def energy(self): #the kinetic, self-potential and fixed external potential of the string. Conserved in physics
+        energy = 0
+        for string in self.strings:
+            energy += string.energy()
+        return energy
+   
+    def com(self):
+        return np.array([string.com() for string in self.strings]).mean(axis=0)
+
+    def increment(self): #A time step using symplectic Heun's method
+        for string in self.strings:
+            string.increment(-(self.init_energy-self.energy())/self.init_energy)
+        if True:
+            self.interact()
+        print (self.init_energy - self.energy())/self.init_energy
+        #print len(self.strings)
+
+    def interact(self,interaction_distance = 0.0,interaction_velocity = 0.5): ##a pair of loops interact with likelihood proportional to one over the sqaure of the number of loops
+        #e = self.energy()
+        for index1,string1 in enumerate(self.strings):
+            for string2 in self.strings[index1:]:
+                test,m,n = string1.multislicetest(string2)
+                #print string1.slicetest(string2) == string1.multislicetest(string2)
+                dec_m = (m - 1) % string1.num_points
+                dec_n = (n - 1) % string2.num_points
+                #print dec_m,m, len(string1.position),dec_n,n, len(string2.position)
+                x1,x2 = string1.position[dec_m],string1.position[m]
+                x3,x4 = string2.position[dec_n],string2.position[n]
+                v1,v2 = string1.velocity[dec_m],string1.velocity[m]
+                v3,v4 = string2.velocity[dec_n],string2.velocity[n]
+                PE0 = string1.k/2 * (np.linalg.norm(x1-x2)**2+np.linalg.norm(x3-x4)**2)   
+                PE1 = string1.k/2 * (np.linalg.norm(x1-x4)**2+np.linalg.norm(x2-x3)**2)
+                KE0 = string1.m/2 * (np.linalg.norm(v1)**2+np.linalg.norm(v2)**2+np.linalg.norm(v3)**2+np.linalg.norm(v4)**2)
+                if test and (KE0 + PE0)-PE1 > 0:
+                    string1.velocity[m] *= np.sqrt(1-(PE1-PE0)/KE0)
+                    string1.velocity[dec_m] *= np.sqrt(1-(PE1-PE0)/KE0)
+                    string2.velocity[n] *= np.sqrt(1-(PE1-PE0)/KE0)
+                    string2.velocity[dec_n] *= np.sqrt(1-(PE1-PE0)/KE0)
+                    if string1 == string2:
+                        pos1 = np.concatenate([string1.position[n:],string1.position[:m]])
+                        pos2 = string1.position[m:n]
+                        vel1 = np.concatenate([string1.velocity[n:],string1.velocity[:m]])
+                        vel2 = string1.velocity[m:n]
+                        new_string1 =  Loop(init_pos = pos1 ,init_vel = vel1, h = self.h,k=string1.k)
+                        new_string2 =  Loop(init_pos =pos2,init_vel = vel2,h = self.h,k=string1.k)
+                        self.strings.append(new_string1)
+                        self.strings.append(new_string2)
+                        self.remove(string1) 
+                    else:
+                        #print "Strings Merging!"
+                        self.remove(string1)
+                        self.remove(string2)
+                        pos = np.concatenate([string1.position[:m],string2.position[n:],string2.position[:n],string1.position[m:]])
+                        vel = np.concatenate([string1.velocity[:m],string2.velocity[n:],string2.velocity[:n],string1.velocity[m:]])
+                        new_string = Loop(init_pos = pos, init_vel = vel, h = self.h)
+                        self.strings.append(new_string)
+                    #print e - self.energy()
+                    return
                     
+    def run_sim(self):
+        while True:
+            self.increment()
 
+    
     def plotter(self):
         fig = plt.figure()
         ax = fig.add_subplot(111, aspect='equal', autoscale_on=False,
@@ -205,7 +279,7 @@ class QString:
             """perform animation step"""
             self.increment()
             #for j,line in enumerate(lines):
-            x,y = (np.concatenate(self.position)).transpose()
+            x,y = (x).transpose()
             line.set_data(x,y)
             #time_text.set_text('curve = ' + str(string.curvature))
             time_text.set_text('time = ' + str(self.time_elapsed))
@@ -232,30 +306,21 @@ class QString:
         def update_lines(num):
             for i in range(10):
                 self.increment()
-            data = np.concatenate(self.position).transpose()
-            for i in range(1,30):
-                self.f[30-i] = self.f[29-i]
+            data = np.concatenate([string.position for string in self.strings]).transpose()
+            for i in range(1,20):
+                self.f[20-i] = self.f[19-i]
             self.f[0] = ax.plot(data[0], data[1], data[2], '.',color=(0.5+0.5*np.sin(2 * np.pi * num/100),0.5+0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3), 0.5+0.5*np.sin(2 * np.pi * num/100 - 2*np.pi/3)) , lw=2)[0]
-            if self.f[29]:
-                (self.f[29]).remove()
+            if self.f[19]:
+                (self.f[19]).remove()
             xx,yy,zz = self.com()
             ax.set_xlim3d([-2.0+xx,2.0 + xx])
             ax.set_ylim3d([-2.0+yy, 2.0+yy])
             ax.set_zlim3d([-2.0+zz, 2.0+zz])
-#            ax.set_xlim3d([-2.0+ 10*num*self.h,2.0 + 10*num*self.h])
-#            ax.set_ylim3d([-2.0, 2.0])
-#            ax.set_zlim3d([-2.0, 2.0])
-
-                        #    ax.collections.remove(self.frame)
-            #self.frame = ax.plot(data[0], data[1], data[2], '.',color=(1, 0.5+ 0.5*np.sin(2 * np.pi * num/100 + 2*np.pi/3),0* np.sin(2 * np.pi * num/100)**2) , lw=2)
             return self.f
-        # Attaching 3D axis to the figure
         fig = plt.figure()
         ax = p3.Axes3D(fig)
-
-
-        # Fifty lines of random 3-D lines
-        data = np.concatenate(self.position).transpose()
+        data = np.concatenate([string.position for string in self.strings]).transpose()
+        
         # NOTE: Can't pass empty arrays into 3d version of plot()
         self.f = [ax.plot(data[0], data[1], data[2], 'go', lw=2)[0]] + [None for i in range(49)]
 
@@ -274,114 +339,45 @@ class QString:
         # Creating the Animation object
         line_ani = animation.FuncAnimation(fig, update_lines, range(10000),
                                            interval=1, blit=False)
-
-        plt.show()
-
+        Writer = animation.writers['imagemagick_file']
+        writer = Writer(fps=15, metadata=dict(artist='Me'), bitrate=1800)
+        line_ani.save('lines.mp4', writer=writer)
 
 
 ###
 #        Examples
 ###
-poss,vels = (
-    np.array([np.array([
-        cos(np.arange(0,1,0.0025) * 2 * np.pi),
-        sin(np.arange(0,1,0.0025) * 2 * np.pi)]).transpose()]),
-    np.array([0.5*np.pi* np.array([1*sin(np.arange(0,1,0.0025) * 3* 2 * np.pi),
-                cos(np.arange(0,1,0.0025)*2 * 2 * np.pi)]).transpose()]))
-vels = vels - vels.sum(0)/len(vels)
-string = QString(init_pos = poss)
-    
-ttring = QString(init_pos = poss)
-  
-pos = 5*np.array([np.array(
-    [np.cos(
-        np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))
-        ).transpose().dot(np.random.rand(10)/10-.5/10),
-     np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()])+poss
-vel = np.array(np.
-               array([np.array(
-    [np.cos(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10),
-     np.sin(np.array([np.arange(10)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(10)/10-.5/10)]).transpose()]))
+def main():
+    components = 3
+    points = 200.
 
-sstring = QString(init_pos = pos,init_vel = vel)
+    possss = (
+        5*np.array([np.array(
+        [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
+        +5*np.array([np.array(
+        [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
+        )[0]
 
-pos = (
-    5*np.array([np.array(
-    [np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
-     np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()])
-    +5*np.array([np.array(
-    [np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
-     np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()])
-    +2*poss)
+    velsss = (np.array(np.array([np.array(
+        [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))+
+        np.array(np.array([np.array(
+        [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components ),
+         np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
+         np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))
+        )[0]
 
+    sting = Loop(init_pos = possss, init_vel = velsss,h = 0.005,k=3)
+    global System
+    System= StringSystem([sting])
+    print [len(string.position) for string in System.strings]
+    #System.run_sim()
+    System.ThreeDplotter()
 
-vel = (np.array(np.array([np.array(
-    [np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
-     np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()]))+
-    np.array(np.array([np.array(
-    [np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3),
-     np.sin(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3)]).transpose()]))
-       +2*vels)
-
-s = QString(init_pos = pos,init_vel = vel)
-
-
-pos = np.array([
-    np.array([cos(np.arange(0,1,0.01) * 2 * np.pi),
-              sin(np.arange(0,1,0.01) * 2 * np.pi),
-              cos(np.arange(0,1,0.01) * 2 * np.pi)]).transpose(),
-    ])
-
-ssttring = QString(init_pos = pos,h=0.01)
-points = 12.0
-poss,vels = (
-    np.array([np.array([
-        cos(np.arange(0,1,1/points) * 2 * np.pi),
-        sin(np.arange(0,1,1/points) * 2 * np.pi)]).transpose()]),
-    2 *np.pi * 0* np.array([np.pi* np.array([-sin(np.arange(0,1,1/points) *  2 * np.pi),
-                cos(np.arange(0,1,1/points) * 2 * np.pi)]).transpose()]))
-
-sting = QString(init_pos = poss, init_vel = vels,h = 0.1)
-
-theta = 10*np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3) +2*np.pi*np.arange(0,1,0.0025)
-
-on_circle = np.array([[ np.cos(theta),np.sin(theta)]]).transpose((0,2,1))
-string_on_circle = QString(init_pos = on_circle)
-
-components = 3
-points = 400.
-
-pos = (
-    5*np.array([np.array(
-    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
-    +5*np.array([np.array(
-    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()])
-    )
-
-
-vel = (np.array(np.array([np.array(
-    [np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)+1,
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.cos(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))+
-    np.array(np.array([np.array(
-    [np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components),
-     np.sin(np.array([np.arange(components)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,1/points)]))).transpose().dot(np.random.rand(components)/components-.5/components)]).transpose()]))
-    )
-
-sting = QString(init_pos = pos, init_vel = vel,h = 0.01,k=0.03)
-
-theta = 10*np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3) +2*np.pi*np.arange(0,1,0.0025)
-phi = 10*np.cos(np.array([np.arange(4)]).transpose().dot(np.array([2*np.pi*np.arange(0,1,0.0025)]))).transpose().dot(np.random.rand(4)/4-.5/3) +2*np.pi*np.arange(0,1,0.0025)
-
-pos = np.array([np.array([
-    np.sin(theta)*np.cos(phi),
-    np.sin(theta)*np.sin(phi),
-    np.cos(theta)]).transpose()])
-sttting = QString(init_pos = pos, h = 0.01,k=0.03)
-sting.ThreeDplotter()
-    
+if __name__ == "__main__":
+    main()
